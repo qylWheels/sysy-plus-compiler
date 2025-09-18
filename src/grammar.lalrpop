@@ -1,0 +1,49 @@
+use crate::parser::ast::*;
+
+grammar;
+
+// 跳过空白符和注释
+match {
+    r"\s*" => {},
+    r"//[^\n\r]*[\n\r]*" => {},
+    r"/\*[\s\S]*\*/" => {},
+    _
+}
+
+pub CompUnit: compunit::CompUnit = {
+    <FuncDef> => compunit::CompUnit {
+        items: vec![<>],
+    },
+}
+
+FuncDef: item::Item = {
+    <frt:FuncRetType> <id:Ident> "(" ")" <b:Block> => {
+        item::Item::FuncDef(item::FuncDef {
+            return_type: frt,
+            ident: id,
+            body: b,
+        })
+    }
+}
+
+FuncRetType: common::Type = {
+    "int" => common::Type::Simple("int".to_string()),
+}
+
+Ident: common::Ident = {
+    r"[_a-zA-Z][_a-zA-Z0-9]*" => common::Ident(<>.to_string()),
+}
+
+Block: Vec<statement::Statement> = {
+    "{" <Stmt> "}" => vec![<>],
+}
+
+Stmt: statement::Statement = {
+    "return" <IntLit> ";" => statement::Statement::Return(<>),
+}
+
+IntLit: i32 = {
+    r"[1-9][0-9]*" => i32::from_str_radix(<>, 10).unwrap(),
+    r"0[0-7]*" => i32::from_str_radix(<>, 8).unwrap(),
+    r"0[xX][0-9a-fA-F]+" => i32::from_str_radix(&<>[2..], 16).unwrap(),
+}
