@@ -1,25 +1,50 @@
 use std::env;
 use std::fs;
-use sysy_compiler::ir::irgen::irgen;
+use std::path::PathBuf;
+use sysy_compiler::ir::irgen;
 use sysy_compiler::ir::program_builder;
 use sysy_compiler::parser::grammar;
+use sysy_compiler::target::riscv::Context;
+use sysy_compiler::target::riscv::GenerateRiscv;
 
-fn main() {
-    let (i, o) = parse_args();
-    let parser = grammar::CompUnitParser::new();
-    let compunit = parser.parse(&i);
-    let program = program_builder::ProgramBuilder::new(compunit.unwrap()).build_compunit();
-    irgen(&program, o);
+#[derive(Debug, Clone)]
+struct Cli {
+    /// 生成的目标代码
+    pub target: String,
+
+    pub input: PathBuf,
+
+    pub output: PathBuf,
 }
 
-fn parse_args() -> (String, fs::File) {
+fn main() {
+    let cli = parse_args();
+
+    let i = fs::read_to_string(cli.input).unwrap();
+    let mut o = fs::File::create(cli.output).unwrap();
+
+    let parser = grammar::CompUnitParser::new();
+    let compunit = parser.parse(&i).unwrap();
+    let program = program_builder::ProgramBuilder::new(compunit).build_compunit();
+
+    match cli.target.as_ref() {
+        "-koopa" => irgen::irgen(&program, o),
+        "-riscv" => program.generate(
+            &mut o,
+            Context {
+                func: None,
+                indent: 0,
+            },
+        ),
+        _ => unimplemented!(),
+    }
+}
+
+fn parse_args() -> Cli {
     let args: Vec<String> = env::args().collect();
-    if args[1] == "-koopa".to_string() && args[3] == "-o" {
-        (
-            fs::read_to_string(&args[2]).unwrap(),
-            fs::File::create(&args[4]).unwrap(),
-        )
-    } else {
-        panic!("Invalid argument(s)")
+    Cli {
+        target: args[1].clone(),
+        input: PathBuf::from(args[2].clone()),
+        output: PathBuf::from(args[4].clone()),
     }
 }
