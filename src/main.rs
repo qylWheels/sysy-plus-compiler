@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use sysy_compiler::ir::irgen;
 use sysy_compiler::ir::program_builder;
 use sysy_compiler::parser::grammar;
-use sysy_compiler::target::riscv::Context;
-use sysy_compiler::target::riscv::GenerateRiscv;
+use sysy_compiler::target::riscv::asmgen::Context;
+use sysy_compiler::target::riscv::asmgen::GenerateRiscv;
 
 #[derive(Debug, Clone)]
 struct Cli {
@@ -29,13 +29,16 @@ fn main() {
 
     match cli.target.as_ref() {
         "-koopa" => irgen::irgen(&program, o),
-        "-riscv" => program.generate(
-            &mut o,
-            Context {
-                func: None,
-                indent: 0,
-            },
-        ),
+        "-riscv" => {
+            let _ = program.generate(
+                &mut o,
+                Context {
+                    func: None,
+                    indent: 0,
+                    reg_alloc_result: None,
+                },
+            );
+        }
         _ => unimplemented!(),
     }
 }

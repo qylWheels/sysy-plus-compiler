@@ -30,16 +30,32 @@ FuncRetType: common::Type = {
     "int" => common::Type::Simple("int".to_string()),
 }
 
-Ident: common::Ident = {
-    r"[_a-zA-Z][_a-zA-Z0-9]*" => common::Ident(<>.to_string()),
-}
-
 Block: Vec<statement::Statement> = {
     "{" <Stmt> "}" => vec![<>],
 }
 
 Stmt: statement::Statement = {
-    "return" <IntLit> ";" => statement::Statement::Return(<>),
+    "return" <Expression> ";" => statement::Statement::Return(<>),
+}
+
+Expression: expression::Expression = {
+    <UnaryExpression> => <>,
+}
+
+UnaryExpression: expression::Expression = {
+    <PrimaryExpression> => <>,
+    "+" <UnaryExpression> => expression::Expression::Unary(expression::UnaryOp::Plus, Box::new(<>)),
+    "-" <UnaryExpression> => expression::Expression::Unary(expression::UnaryOp::Minus, Box::new(<>)),
+    "!" <UnaryExpression> => expression::Expression::Unary(expression::UnaryOp::LogicalNot, Box::new(<>)),
+}
+
+PrimaryExpression: expression::Expression = {
+    <IntLit> => expression::Expression::IntLit(<>),
+    "(" <Expression> ")" => <>
+}
+
+Ident: common::Ident = {
+    r"[_a-zA-Z][_a-zA-Z0-9]*" => common::Ident(<>.to_string()),
 }
 
 IntLit: i32 = {

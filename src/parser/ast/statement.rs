@@ -1,4 +1,6 @@
+use crate::parser::ast::expression::*;
+
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Return(i32),
+    Return(Expression),
 }

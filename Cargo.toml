@@ -9,4 +9,5 @@ lalrpop = "0.22.2"
 [dependencies]
 lalrpop-util = { version = "0.22.2", features = ["lexer", "unicode"] }
 koopa = "0.0.8"
-# clap = { version = "4.5.47", features = ["derive"] }
+strum = "0.27"
+strum_macros = "0.27"
