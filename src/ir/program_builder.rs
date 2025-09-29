@@ -1,4 +1,4 @@
-use crate::parser::ast::expression::{Expression, UnaryOp};
+use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
 use crate::{ir::typemap::typemap, parser::ast::compunit::CompUnit};
@@ -108,7 +108,58 @@ impl ProgramBuilder {
                     }
                 }
             }
-            Expression::Binary(expr1, op, expr2) => todo!(),
+            Expression::Binary(e1, op, e2) => {
+                let v1 = self.build_expr(e1, func_data, bb);
+                let v2 = self.build_expr(e2, func_data, bb);
+                match op {
+                    BinaryOp::Add => {
+                        let instr = func_data.dfg_mut().new_value().binary(
+                            koopa::ir::BinaryOp::Add,
+                            v1,
+                            v2,
+                        );
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::Sub => {
+                        let instr = func_data.dfg_mut().new_value().binary(
+                            koopa::ir::BinaryOp::Sub,
+                            v1,
+                            v2,
+                        );
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::Mul => {
+                        let instr = func_data.dfg_mut().new_value().binary(
+                            koopa::ir::BinaryOp::Mul,
+                            v1,
+                            v2,
+                        );
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::Div => {
+                        let instr = func_data.dfg_mut().new_value().binary(
+                            koopa::ir::BinaryOp::Div,
+                            v1,
+                            v2,
+                        );
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::Rem => {
+                        let instr = func_data.dfg_mut().new_value().binary(
+                            koopa::ir::BinaryOp::Mod,
+                            v1,
+                            v2,
+                        );
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    _ => unimplemented!(),
+                }
+            }
         }
     }
 }

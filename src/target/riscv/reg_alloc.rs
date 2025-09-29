@@ -30,6 +30,7 @@ pub enum Register {
 }
 
 /// 寄存器状态
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum RegStatus {
     Unused,
@@ -151,13 +152,14 @@ impl RegAllocator {
                 .or_insert(Allocation::Register(reg));
         }
 
+        // dbg!(&self.reg_allocs);
         &self.reg_allocs
     }
 
     fn need_alloc_reg(value_data: &ValueData) -> bool {
         let kind = value_data.kind();
         match kind {
-            ValueKind::Integer(_) | ValueKind::Return(_) => false,
+            ValueKind::Return(_) => false,
             _ => true,
         }
     }
@@ -166,6 +168,7 @@ impl RegAllocator {
         self.available_regs.pop_front().unwrap()
     }
 
+    #[allow(dead_code)]
     fn free_reg(&mut self) {
         todo!()
     }

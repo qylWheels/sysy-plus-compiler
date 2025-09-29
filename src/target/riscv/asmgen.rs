@@ -1,5 +1,4 @@
 use std::collections::*;
-use std::env::consts::FAMILY;
 use std::io;
 
 use koopa::ir::*;
@@ -7,7 +6,6 @@ use koopa::ir::*;
 use crate::target::riscv::reg_alloc::{Allocation, RegAllocator};
 
 const INDENT_SIZE: usize = 2;
-
 #[derive(Clone)]
 pub struct Context<'a> {
     pub func: Option<&'a FunctionData>,
@@ -124,27 +122,24 @@ impl GenerateRiscv for Value {
                 let lhs_is_koopa_reg = is_koopa_reg(lhs, ctx.func.unwrap());
                 let rhs_is_koopa_reg = is_koopa_reg(rhs, ctx.func.unwrap());
 
-                let lhs_str = if lhs_is_koopa_reg {
-                    match ctx.reg_alloc_result.unwrap().get(&lhs).unwrap() {
-                        Allocation::Register(reg) => reg.to_string(),
-                        _ => unimplemented!(),
-                    }
-                } else {
-                    match lhs_valuedata.kind() {
-                        ValueKind::Integer(i) => i.value().to_string(),
-                        _ => unimplemented!(),
-                    }
+                // lhs和rhs分配到的的riscv寄存器
+                let lhs_riscv_reg_str = match ctx.reg_alloc_result.unwrap().get(&lhs).unwrap() {
+                    Allocation::Register(reg) => reg.to_string(),
+                    _ => unimplemented!(),
                 };
-                let rhs_str = if rhs_is_koopa_reg {
-                    match ctx.reg_alloc_result.unwrap().get(&rhs).unwrap() {
-                        Allocation::Register(reg) => reg.to_string(),
-                        _ => unimplemented!(),
-                    }
-                } else {
-                    match rhs_valuedata.kind() {
-                        ValueKind::Integer(i) => i.value().to_string(),
-                        _ => unimplemented!(),
-                    }
+                let rhs_riscv_reg_str = match ctx.reg_alloc_result.unwrap().get(&rhs).unwrap() {
+                    Allocation::Register(reg) => reg.to_string(),
+                    _ => unimplemented!(),
+                };
+
+                // 当lhs和rhs为integer时用这些
+                let lhs_int = match lhs_valuedata.kind() {
+                    ValueKind::Integer(i) => Some(i.value()),
+                    _ => None,
+                };
+                let rhs_int = match rhs_valuedata.kind() {
+                    ValueKind::Integer(i) => Some(i.value()),
+                    _ => None,
                 };
 
                 // 自己一定是个koopa reg
@@ -155,15 +150,14 @@ impl GenerateRiscv for Value {
                 let self_str = self_riscv_reg.to_string();
 
                 match (lhs_is_koopa_reg, op, rhs_is_koopa_reg) {
+                    // 加
                     (false, BinaryOp::Add, false) => {
                         writeln!(
                             dest,
-                            "{}addi {}, {}, {}",
+                            "{}li {}, {}",
                             " ".repeat(ctx.indent),
                             self_riscv_reg.to_string(),
-                            "zero".to_string(),
-                            (lhs_str.parse::<i32>().unwrap() + rhs_str.parse::<i32>().unwrap())
-                                .to_string()
+                            (lhs_int.unwrap() + rhs_int.unwrap()).to_string()
                         )
                         .unwrap();
                     }
@@ -173,8 +167,8 @@ impl GenerateRiscv for Value {
                             "{}addi {}, {}, {}",
                             " ".repeat(ctx.indent),
                             self_riscv_reg.to_string(),
-                            lhs_str,
-                            rhs_str
+                            lhs_riscv_reg_str,
+                            rhs_int.unwrap().to_string()
                         )
                         .unwrap();
                     }
@@ -184,8 +178,8 @@ impl GenerateRiscv for Value {
                             "{}addi {}, {}, {}",
                             " ".repeat(ctx.indent),
                             self_riscv_reg.to_string(),
-                            rhs_str,
-                            lhs_str,
+                            rhs_riscv_reg_str,
+                            lhs_int.unwrap().to_string(),
                         )
                         .unwrap();
                     }
@@ -195,20 +189,20 @@ impl GenerateRiscv for Value {
                             "{}add {}, {}, {}",
                             " ".repeat(ctx.indent),
                             self_riscv_reg.to_string(),
-                            lhs_str,
-                            rhs_str
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str
                         )
                         .unwrap();
                     }
 
+                    // 减
                     (false, BinaryOp::Sub, false) => {
                         writeln!(
                             dest,
                             "{}li {}, {}",
                             " ".repeat(ctx.indent),
                             self_riscv_reg.to_string(),
-                            (lhs_str.parse::<i32>().unwrap() - rhs_str.parse::<i32>().unwrap())
-                                .to_string()
+                            (lhs_int.unwrap() - rhs_int.unwrap()).to_string(),
                         )
                         .unwrap();
                     }
@@ -218,27 +212,27 @@ impl GenerateRiscv for Value {
                             "{}addi {}, {}, {}",
                             " ".repeat(ctx.indent),
                             self_riscv_reg.to_string(),
-                            lhs_str,
-                            (-rhs_str.parse::<i32>().unwrap()).to_string()
+                            lhs_riscv_reg_str,
+                            (-rhs_int.unwrap()).to_string(),
                         )
                         .unwrap();
                     }
                     (false, BinaryOp::Sub, true) => {
                         writeln!(
                             dest,
-                            "{}addi {}, {}, {}",
+                            "{}li {}, {}",
                             " ".repeat(ctx.indent),
-                            self_riscv_reg.to_string(),
-                            rhs_str,
-                            (-lhs_str.parse::<i32>().unwrap()).to_string()
+                            lhs_riscv_reg_str,
+                            lhs_int.unwrap().to_string(),
                         )
                         .unwrap();
                         writeln!(
                             dest,
-                            "{}neg {}, {}",
+                            "{}sub {}, {}, {}",
                             " ".repeat(ctx.indent),
                             self_riscv_reg.to_string(),
-                            self_riscv_reg.to_string(),
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
                         )
                         .unwrap();
                     }
@@ -248,19 +242,203 @@ impl GenerateRiscv for Value {
                             "{}sub {}, {}, {}",
                             " ".repeat(ctx.indent),
                             self_riscv_reg.to_string(),
-                            lhs_str,
-                            rhs_str
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str
                         )
                         .unwrap();
                     }
 
+                    // 乘
+                    (false, BinaryOp::Mul, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_riscv_reg.to_string(),
+                            (lhs_int.unwrap() * rhs_int.unwrap()).to_string(),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Mul, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            rhs_riscv_reg_str,
+                            rhs_int.unwrap().to_string(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}mul {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_riscv_reg.to_string(),
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::Mul, true) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            lhs_riscv_reg_str,
+                            lhs_int.unwrap(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}mul {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_riscv_reg.to_string(),
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Mul, true) => {
+                        writeln!(
+                            dest,
+                            "{}mul {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_riscv_reg.to_string(),
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str
+                        )
+                        .unwrap();
+                    }
+
+                    // 除
+                    (false, BinaryOp::Div, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_riscv_reg.to_string(),
+                            (lhs_int.unwrap() / rhs_int.unwrap()).to_string(),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Div, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            rhs_riscv_reg_str,
+                            rhs_int.unwrap().to_string(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}div {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_riscv_reg.to_string(),
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::Div, true) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            lhs_riscv_reg_str,
+                            lhs_int.unwrap().to_string(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}div {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_riscv_reg.to_string(),
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Div, true) => {
+                        writeln!(
+                            dest,
+                            "{}div {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_riscv_reg.to_string(),
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str
+                        )
+                        .unwrap();
+                    }
+
+                    // 取余
+                    (false, BinaryOp::Mod, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_int.unwrap() % rhs_int.unwrap(),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Mod, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            rhs_riscv_reg_str,
+                            rhs_int.unwrap(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}rem {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::Mod, true) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            lhs_riscv_reg_str,
+                            lhs_int.unwrap(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}rem {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Mod, true) => {
+                        writeln!(
+                            dest,
+                            "{}rem {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+
+                    // 相等
                     (false, BinaryOp::Eq, false) => {
                         writeln!(
                             dest,
                             "{}li {}, {}",
                             " ".repeat(ctx.indent),
                             self_str,
-                            i32::from(lhs_str == rhs_str),
+                            i32::from(lhs_riscv_reg_str == rhs_riscv_reg_str),
                         )
                         .unwrap();
                     }
@@ -270,8 +448,8 @@ impl GenerateRiscv for Value {
                             "{}xori {}, {}, {}",
                             " ".repeat(ctx.indent),
                             self_str,
-                            rhs_str,
-                            lhs_str,
+                            lhs_riscv_reg_str,
+                            rhs_int.unwrap(),
                         )
                         .unwrap();
                         writeln!(
@@ -289,8 +467,8 @@ impl GenerateRiscv for Value {
                             "{}xori {}, {}, {}",
                             " ".repeat(ctx.indent),
                             self_str,
-                            rhs_str,
-                            lhs_str,
+                            rhs_riscv_reg_str,
+                            lhs_int.unwrap(),
                         )
                         .unwrap();
                         writeln!(
@@ -308,8 +486,8 @@ impl GenerateRiscv for Value {
                             "{}xor {}, {}, {}",
                             " ".repeat(ctx.indent),
                             self_str,
-                            lhs_str,
-                            rhs_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
                         )
                         .unwrap();
                         writeln!(
@@ -321,6 +499,7 @@ impl GenerateRiscv for Value {
                         )
                         .unwrap();
                     }
+
                     _ => unimplemented!(),
                 };
 

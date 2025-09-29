@@ -39,7 +39,25 @@ Stmt: statement::Statement = {
 }
 
 Expression: expression::Expression = {
+    <AddExpression> => <>,
+}
+
+AddExpression: expression::Expression = {
+    <MulExpression> => <>,
+    <e1:AddExpression> "+" <e2:MulExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Add, Box::new(e2)),
+    <e1:AddExpression> "-" <e2:MulExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Sub, Box::new(e2)),
+}
+
+MulExpression: expression::Expression = {
     <UnaryExpression> => <>,
+    <e1:MulExpression> "*" <e2:UnaryExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Mul, Box::new(e2)),
+    <e1:MulExpression> "/" <e2:UnaryExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Div, Box::new(e2)),
+    <e1:MulExpression> "%" <e2:UnaryExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Rem, Box::new(e2)),
 }
 
 UnaryExpression: expression::Expression = {
