@@ -5,6 +5,12 @@ use crate::{ir::typemap::typemap, parser::ast::compunit::CompUnit};
 use koopa::ir::builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::{BasicBlock, FunctionData, Program, Value};
 
+macro_rules! new_instr {
+    ($func_data:expr) => {
+        $func_data.dfg_mut().new_value()
+    };
+}
+
 macro_rules! add_instr {
     ($func_data:expr, $bb:expr, $instr:expr) => {
         $func_data
@@ -111,6 +117,7 @@ impl ProgramBuilder {
             Expression::Binary(e1, op, e2) => {
                 let v1 = self.build_expr(e1, func_data, bb);
                 let v2 = self.build_expr(e2, func_data, bb);
+                let zero = new_instr!(func_data).integer(0);
                 match op {
                     BinaryOp::Add => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -157,7 +164,85 @@ impl ProgramBuilder {
                         add_instr!(func_data, bb, instr);
                         instr
                     }
-                    _ => unimplemented!(),
+                    BinaryOp::Less => {
+                        let instr =
+                            func_data
+                                .dfg_mut()
+                                .new_value()
+                                .binary(koopa::ir::BinaryOp::Lt, v1, v2);
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::Le => {
+                        let instr =
+                            func_data
+                                .dfg_mut()
+                                .new_value()
+                                .binary(koopa::ir::BinaryOp::Le, v1, v2);
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::Eq => {
+                        let instr =
+                            func_data
+                                .dfg_mut()
+                                .new_value()
+                                .binary(koopa::ir::BinaryOp::Eq, v1, v2);
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::Ge => {
+                        let instr = new_instr!(func_data).binary(koopa::ir::BinaryOp::Ge, v1, v2);
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::Greater => {
+                        let instr = new_instr!(func_data).binary(koopa::ir::BinaryOp::Gt, v1, v2);
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::NotEq => {
+                        let instr =
+                            new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v1, v2);
+                        add_instr!(func_data, bb, instr);
+                        instr
+                    }
+                    BinaryOp::LogicalAnd => {
+                        let v1_instr =
+                            new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v1, zero);
+                        add_instr!(func_data, bb, v1_instr);
+
+                        let v2_instr =
+                            new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v2, zero);
+                        add_instr!(func_data, bb, v2_instr);
+
+                        let result = new_instr!(func_data).binary(
+                            koopa::ir::BinaryOp::And,
+                            v1_instr,
+                            v2_instr,
+                        );
+                        add_instr!(func_data, bb, result);
+
+                        result
+                    }
+                    BinaryOp::LogicalOr => {
+                        let v1_instr =
+                            new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v1, zero);
+                        add_instr!(func_data, bb, v1_instr);
+
+                        let v2_instr =
+                            new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v2, zero);
+                        add_instr!(func_data, bb, v2_instr);
+
+                        let result = new_instr!(func_data).binary(
+                            koopa::ir::BinaryOp::Or,
+                            v1_instr,
+                            v2_instr,
+                        );
+                        add_instr!(func_data, bb, result);
+
+                        result
+                    }
                 }
             }
         }

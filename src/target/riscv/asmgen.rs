@@ -21,6 +21,56 @@ pub enum ResultValue {
     KoopaRegister(Value),
 }
 
+/// 用于简化两个操作数的is_koopa_reg值为一真一假时的代码
+// macro_rules! handle_true_false {
+//     ($case:expr, $dest:expr, $op:expr, $ctx:expr, $self_reg:expr,
+//         $lhs_reg:expr, $lhs_int:expr,
+//         $rhs_reg:expr, $rhs_int:expr
+//     ) => {
+//         (true, $case, false) => {
+//             writeln!(
+//                 $dest,
+//                 "{}li {}, {}",
+//                 " ".repeat(ctx.indent),
+//                 rhs_reg.to_string(),
+//                 rhs_int.unwrap(),
+//             )
+//             .unwrap();
+//             writeln!(
+//                 $dest,
+//                 "{}{} {}, {}, {}",
+//                 " ".repeat(ctx.indent),
+//                 $op,
+//                 $self_reg.to_string(),
+//                 $lhs_reg.to_string(),
+//                 $rhs_reg.to_string(),
+//             )
+//             .unwrap();
+//         }
+
+//         (false, $case, true) => {
+//             writeln!(
+//                 $dest,
+//                 "{}li {}, {}",
+//                 " ".repeat(ctx.indent),
+//                 lhs_reg.to_string(),
+//                 lhs_int.unwrap(),
+//             )
+//             .unwrap();
+//             writeln!(
+//                 $dest,
+//                 "{}{} {}, {}, {}",
+//                 " ".repeat(ctx.indent),
+//                 $op,
+//                 $self_reg.to_string(),
+//                 $lhs_reg.to_string(),
+//                 $rhs_reg.to_string(),
+//             )
+//             .unwrap();
+//         }
+//     };
+// }
+
 pub trait GenerateRiscv {
     fn generate(&self, dest: &mut impl io::Write, ctx: Context) -> ResultValue;
 }
@@ -438,7 +488,7 @@ impl GenerateRiscv for Value {
                             "{}li {}, {}",
                             " ".repeat(ctx.indent),
                             self_str,
-                            i32::from(lhs_riscv_reg_str == rhs_riscv_reg_str),
+                            i32::from(lhs_int.unwrap() == rhs_int.unwrap()),
                         )
                         .unwrap();
                     }
@@ -496,6 +546,433 @@ impl GenerateRiscv for Value {
                             " ".repeat(ctx.indent),
                             self_str,
                             self_str,
+                        )
+                        .unwrap();
+                    }
+
+                    // 不相等
+                    (false, BinaryOp::NotEq, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            i32::from(lhs_int.unwrap() != rhs_int.unwrap()),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::NotEq, false) => {
+                        writeln!(
+                            dest,
+                            "{}xori {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_int.unwrap(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}snez {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            self_str,
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::NotEq, true) => {
+                        writeln!(
+                            dest,
+                            "{}xori {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            rhs_riscv_reg_str,
+                            lhs_int.unwrap(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}snez {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            self_str,
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::NotEq, true) => {
+                        writeln!(
+                            dest,
+                            "{}xor {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}snez {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            self_str,
+                        )
+                        .unwrap();
+                    }
+
+                    // 小于
+                    (false, BinaryOp::Lt, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            i32::from(lhs_int.unwrap() < rhs_int.unwrap()),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Lt, false) => {
+                        writeln!(
+                            dest,
+                            "{}slti {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_int.unwrap()
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::Lt, true) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            lhs_riscv_reg_str,
+                            lhs_int.unwrap(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Lt, true) => {
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str
+                        )
+                        .unwrap();
+                    }
+
+                    // 小于等于
+                    (false, BinaryOp::Le, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            i32::from(lhs_int.unwrap() <= rhs_int.unwrap()),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Le, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            rhs_riscv_reg_str,
+                            rhs_int.unwrap()
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            rhs_riscv_reg_str,
+                            lhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}not {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            self_str,
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::Le, true) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            lhs_riscv_reg_str,
+                            lhs_int.unwrap()
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            rhs_riscv_reg_str,
+                            lhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}not {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            self_str,
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Le, true) => {
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str
+                        )
+                        .unwrap();
+                    }
+
+                    // 大于等于
+                    (false, BinaryOp::Ge, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            i32::from(lhs_int.unwrap() >= rhs_int.unwrap()),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Ge, false) => {
+                        writeln!(
+                            dest,
+                            "{}slti {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_int.unwrap(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}not {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            self_str,
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::Ge, true) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            lhs_riscv_reg_str,
+                            lhs_int.unwrap()
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}not {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            self_str,
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Ge, true) => {
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}not {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            self_str,
+                        )
+                        .unwrap();
+                    }
+
+                    // 大于
+                    (false, BinaryOp::Gt, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            i32::from(lhs_int.unwrap() > rhs_int.unwrap()),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Gt, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            rhs_riscv_reg_str,
+                            rhs_int.unwrap(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            rhs_riscv_reg_str,
+                            lhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::Gt, true) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            lhs_riscv_reg_str,
+                            lhs_int.unwrap(),
+                        )
+                        .unwrap();
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            rhs_riscv_reg_str,
+                            lhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Gt, true) => {
+                        writeln!(
+                            dest,
+                            "{}slt {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            rhs_riscv_reg_str,
+                            lhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+
+                    // 按位与
+                    (false, BinaryOp::And, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            i32::from(lhs_int.unwrap() & rhs_int.unwrap()),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::And, false) => {
+                        writeln!(
+                            dest,
+                            "{}andi {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_int.unwrap(),
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::And, true) => {
+                        writeln!(
+                            dest,
+                            "{}andi {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            rhs_riscv_reg_str,
+                            lhs_int.unwrap(),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::And, true) => {
+                        writeln!(
+                            dest,
+                            "{}and {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
+                        )
+                        .unwrap();
+                    }
+
+                    // 按位或
+                    (false, BinaryOp::Or, false) => {
+                        writeln!(
+                            dest,
+                            "{}li {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            i32::from(lhs_int.unwrap() | rhs_int.unwrap()),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Or, false) => {
+                        writeln!(
+                            dest,
+                            "{}ori {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_int.unwrap(),
+                        )
+                        .unwrap();
+                    }
+                    (false, BinaryOp::Or, true) => {
+                        writeln!(
+                            dest,
+                            "{}ori {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            rhs_riscv_reg_str,
+                            lhs_int.unwrap(),
+                        )
+                        .unwrap();
+                    }
+                    (true, BinaryOp::Or, true) => {
+                        writeln!(
+                            dest,
+                            "{}or {}, {}, {}",
+                            " ".repeat(ctx.indent),
+                            self_str,
+                            lhs_riscv_reg_str,
+                            rhs_riscv_reg_str,
                         )
                         .unwrap();
                     }

@@ -39,7 +39,40 @@ Stmt: statement::Statement = {
 }
 
 Expression: expression::Expression = {
+    <LogicalOrExpression> => <>,
+}
+
+LogicalOrExpression: expression::Expression = {
+    <LogicalAndExpression> => <>,
+    <e1:LogicalOrExpression> "||" <e2:LogicalAndExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::LogicalOr, Box::new(e2)),
+}
+
+LogicalAndExpression: expression::Expression = {
+    <EqExpression> => <>,
+    <e1:LogicalAndExpression> "&&" <e2:EqExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::LogicalAnd, Box::new(e2)),
+}
+
+EqExpression: expression::Expression = {
+    <RelationalExpression> => <>,
+    <e1:EqExpression> "==" <e2:RelationalExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Eq, Box::new(e2)),
+    <e1:EqExpression> "!=" <e2:RelationalExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::NotEq, Box::new(e2)),
+}
+
+RelationalExpression: expression::Expression = {
     <AddExpression> => <>,
+    <e1:RelationalExpression> "<" <e2:AddExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Less, Box::new(e2)),
+    <e1:RelationalExpression> "<=" <e2:AddExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Le, Box::new(e2)),
+    <e1:RelationalExpression> ">=" <e2:AddExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Ge, Box::new(e2)),
+    <e1:RelationalExpression> ">" <e2:AddExpression>
+        => expression::Expression::Binary(Box::new(e1), expression::BinaryOp::Greater, Box::new(e2)),
+
 }
 
 AddExpression: expression::Expression = {

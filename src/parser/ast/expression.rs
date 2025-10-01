@@ -21,11 +21,15 @@ pub enum BinaryOp {
     Div,
     Rem,
 
-    // 逻辑运算符
+    // 比较运算符
     Less,
     Le,
     Eq,
     Ge,
     Greater,
     NotEq,
+
+    // 逻辑运算符
+    LogicalAnd,
+    LogicalOr,
 }
