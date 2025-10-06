@@ -1,6 +1,9 @@
+use crate::parser::ast::common::Ident;
+
 #[derive(Debug, Clone)]
 pub enum Expression {
     IntLit(i32),
+    Ident(Ident),
     Unary(UnaryOp, Box<Expression>),
     Binary(Box<Expression>, BinaryOp, Box<Expression>),
 }

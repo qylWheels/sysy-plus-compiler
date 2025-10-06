@@ -25,6 +25,7 @@ fn main() {
 
     let parser = grammar::CompUnitParser::new();
     let compunit = parser.parse(&i).unwrap();
+    dbg!(&compunit);
     let program = program_builder::ProgramBuilder::new(compunit).build_compunit();
 
     match cli.target.as_ref() {

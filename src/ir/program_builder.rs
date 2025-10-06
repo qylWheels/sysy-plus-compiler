@@ -83,6 +83,7 @@ impl ProgramBuilder {
                 let ret_stmt = func_data.dfg_mut().new_value().ret(Some(ret_val));
                 add_instr!(func_data, bb, ret_stmt);
             }
+            _ => unimplemented!(),
         }
     }
 
@@ -245,6 +246,7 @@ impl ProgramBuilder {
                     }
                 }
             }
+            _ => unimplemented!(),
         }
     }
 }

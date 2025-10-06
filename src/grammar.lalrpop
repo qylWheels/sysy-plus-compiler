@@ -31,11 +31,36 @@ FuncRetType: common::Type = {
 }
 
 Block: Vec<statement::Statement> = {
-    "{" <Stmt> "}" => vec![<>],
+    "{" <(<Stmt>)*> "}" => <>,
 }
 
 Stmt: statement::Statement = {
+    <ConstDecl> => <>,
+    <VarDecl> => <>,
+    <Assign> => <>,
     "return" <Expression> ";" => statement::Statement::Return(<>),
+}
+
+ConstDecl: statement::Statement = {
+    "const" <ty:Type> <first:ConstDef> <rest:("," <ConstDef>)*> ";" => {
+        let mut v = vec![first];
+        v.extend(rest);
+        let v: Vec<(common::Type, common::Ident, expression::Expression)>
+            = v.iter().map(|elem| (ty.clone(), elem.0.clone(), elem.1.clone())).collect();
+        statement::Statement::ConstDecl(v)
+    }
+}
+
+ConstDef: (common::Ident, expression::Expression) = {
+    <id:Ident> "=" <e:Expression> => (id, e),
+}
+
+VarDecl: statement::Statement = {
+    
+}
+
+Assign: statement::Statement = {
+    
 }
 
 Expression: expression::Expression = {
@@ -102,7 +127,12 @@ UnaryExpression: expression::Expression = {
 
 PrimaryExpression: expression::Expression = {
     <IntLit> => expression::Expression::IntLit(<>),
+    <Ident> => expression::Expression::Ident(<>),
     "(" <Expression> ")" => <>
+}
+
+Type: common::Type = {
+    "int" => common::Type::Simple("int".to_string()),
 }
 
 Ident: common::Ident = {
