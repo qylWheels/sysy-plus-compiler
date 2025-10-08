@@ -1,5 +1,6 @@
 use crate::parser::ast::common::Ident;
 
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum Expression {
     IntLit(i32),
@@ -8,6 +9,7 @@ pub enum Expression {
     Binary(Box<Expression>, BinaryOp, Box<Expression>),
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     Plus,
@@ -15,6 +17,7 @@ pub enum UnaryOp {
     LogicalNot,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub enum BinaryOp {
     // 算术运算符
