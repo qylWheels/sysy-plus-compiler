@@ -71,7 +71,7 @@ VarDef: (common::Ident, Option<expression::Expression>) = {
 }
 
 Assign: statement::Statement = {
-    
+    <id:Ident> "=" <e:Expression> ";" => statement::Statement::Assign(id, e)
 }
 
 Expression: expression::Expression = {
