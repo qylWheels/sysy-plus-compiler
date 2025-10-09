@@ -264,7 +264,6 @@ impl<'a> ProgramBuilder<'a> {
                     }
                 }
             }
-            _ => unimplemented!(),
         }
     }
 }

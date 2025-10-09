@@ -56,7 +56,18 @@ ConstDef: (common::Ident, expression::Expression) = {
 }
 
 VarDecl: statement::Statement = {
-    
+    <ty:Type> <first:VarDef> <rest:("," <VarDef>)*> ";" => {
+        let mut v = vec![first];
+        v.extend(rest);
+        let v: Vec<(common::Type, common::Ident, Option<expression::Expression>)>
+            = v.iter().map(|elem| (ty.clone(), elem.0.clone(), elem.1.clone())).collect();
+        statement::Statement::VarDecl(v)
+    }
+}
+
+VarDef: (common::Ident, Option<expression::Expression>) = {
+    <id:Ident> => (id, None),
+    <id:Ident> "=" <e:Expression> => (id, Some(e)),
 }
 
 Assign: statement::Statement = {

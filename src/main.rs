@@ -27,6 +27,7 @@ fn main() {
     // 语法分析
     let parser = grammar::CompUnitParser::new();
     let compunit = parser.parse(&i).unwrap();
+    dbg!(&compunit);
 
     // 语义检查
     let mut symtable = SymbolTable::new();

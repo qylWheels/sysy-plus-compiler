@@ -6,6 +6,6 @@ use crate::parser::ast::expression::*;
 pub enum Statement {
     Return(Expression),
     ConstDecl(Vec<(Type, Ident, Expression)>),
-    VarDecl(Vec<(Type, Ident, Expression)>),
+    VarDecl(Vec<(Type, Ident, Option<Expression>)>),
     Assign(Ident, Expression),
 }
