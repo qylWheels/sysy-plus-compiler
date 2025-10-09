@@ -13,6 +13,9 @@ pub enum SymbolTableError {
     #[error("{0:?} is not a constant expression")]
     ConstEvalError(Expression),
 
+    #[error("{0} is not a constant identifer")]
+    ConstIdentError(Ident),
+
     #[error("{0} is not exists in symbol table")]
     SymbolNotFound(Ident),
 }
@@ -154,14 +157,30 @@ impl SymbolTable {
         }
     }
 
-    fn find_symbol(&self, symbol: &Ident) -> Result<&SymbolInfo, SymbolTableError> {
+    fn find_symbol(&self, id: &Ident) -> Result<&SymbolInfo, SymbolTableError> {
         self.map
-            .get(symbol)
-            .ok_or(SymbolTableError::SymbolNotFound(symbol.clone()))
+            .get(id)
+            .ok_or(SymbolTableError::SymbolNotFound(id.clone()))
     }
 
     fn i32_to_bool(i: i32) -> bool {
         i != 0
+    }
+
+    pub fn is_const_val(&self, id: &Ident) -> Result<bool, SymbolTableError> {
+        let syminfo = self.find_symbol(id)?;
+        match syminfo.const_val {
+            Some(_) => Ok(true),
+            None => Ok(false),
+        }
+    }
+
+    pub fn const_val_of(&self, id: &Ident) -> Result<i32, SymbolTableError> {
+        let syminfo = self.find_symbol(id)?;
+        match syminfo.const_val {
+            Some(i) => Ok(i),
+            None => Err(SymbolTableError::ConstIdentError(id.clone())),
+        }
     }
 }
 

@@ -1,9 +1,16 @@
 use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
+use crate::semantic::symbol_table::SymbolTable;
 use crate::{ir::typemap::typemap, parser::ast::compunit::CompUnit};
 use koopa::ir::builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::{BasicBlock, FunctionData, Program, Value};
+
+macro_rules! new_value {
+    ($func_data:expr) => {
+        new_instr!($func_data)
+    };
+}
 
 macro_rules! new_instr {
     ($func_data:expr) => {
@@ -41,13 +48,14 @@ macro_rules! add_bb {
     };
 }
 
-pub struct ProgramBuilder {
+pub struct ProgramBuilder<'a> {
     ast: CompUnit,
+    symbol_table: &'a SymbolTable,
 }
 
-impl ProgramBuilder {
-    pub fn new(ast: CompUnit) -> Self {
-        Self { ast }
+impl<'a> ProgramBuilder<'a> {
+    pub fn new(ast: CompUnit, symbol_table: &'a SymbolTable) -> Self {
+        Self { ast, symbol_table }
     }
 
     pub fn build_compunit(&self) -> Program {
@@ -83,6 +91,9 @@ impl ProgramBuilder {
                 let ret_stmt = func_data.dfg_mut().new_value().ret(Some(ret_val));
                 add_instr!(func_data, bb, ret_stmt);
             }
+            Statement::ConstDecl(_) => {
+                // void
+            }
             _ => unimplemented!(),
         }
     }
@@ -90,6 +101,13 @@ impl ProgramBuilder {
     fn build_expr(&self, expr: &Expression, func_data: &mut FunctionData, bb: BasicBlock) -> Value {
         match expr {
             Expression::IntLit(i) => func_data.dfg_mut().new_value().integer(*i),
+            Expression::Ident(id) => match self.symbol_table.is_const_val(id).unwrap() {
+                true => {
+                    let i = self.symbol_table.const_val_of(id).unwrap();
+                    new_value!(func_data).integer(i)
+                }
+                false => unimplemented!(),
+            },
             Expression::Unary(op, expr) => {
                 let value = self.build_expr(expr, func_data, bb);
                 let zero = func_data.dfg_mut().new_value().integer(0);

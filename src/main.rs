@@ -30,11 +30,10 @@ fn main() {
 
     // 语义检查
     let mut symtable = SymbolTable::new();
-    symtable.check(&compunit);
-    dbg!(&symtable);
+    symtable.check(&compunit).unwrap(); // TODO: 使用anyhow处理错误
 
     // IR/目标代码生成
-    let program = program_builder::ProgramBuilder::new(compunit).build_compunit();
+    let program = program_builder::ProgramBuilder::new(compunit, &symtable).build_compunit();
     match cli.target.as_ref() {
         "-koopa" => irgen::irgen(&program, o),
         "-riscv" => {
