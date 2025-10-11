@@ -1,2 +1,3 @@
-pub mod symbol_table;
-pub mod type_check;
+pub mod check;
+pub(crate) mod symbol_table;
+mod type_check;

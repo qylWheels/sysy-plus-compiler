@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use sysy_compiler::ir::irgen;
 use sysy_compiler::ir::program_builder;
 use sysy_compiler::parser::grammar;
-use sysy_compiler::semantic::symbol_table::SymbolTable;
+use sysy_compiler::semantic::check::SemanticChecker;
 use sysy_compiler::target::riscv::asmgen::Context;
 use sysy_compiler::target::riscv::asmgen::GenerateRiscv;
 
@@ -30,11 +30,13 @@ fn main() {
     dbg!(&compunit);
 
     // 语义检查
-    let mut symtable = SymbolTable::new();
-    symtable.check(&compunit).unwrap(); // TODO: 使用anyhow处理错误
+    let mut checker = SemanticChecker::new();
+    checker.check(&compunit).unwrap(); // TODO: 使用anyhow处理错误
 
     // IR/目标代码生成
-    let program = program_builder::ProgramBuilder::new(compunit, &symtable).build_compunit();
+    let program = program_builder::ProgramBuilder::new(compunit, checker.get_symbol_table())
+        .build_compunit()
+        .unwrap(); // TODO: 使用anyhow处理错误
     match cli.target.as_ref() {
         "-koopa" => irgen::irgen(&program, o),
         "-riscv" => {

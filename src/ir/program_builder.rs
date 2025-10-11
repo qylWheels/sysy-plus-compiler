@@ -1,10 +1,11 @@
 use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
-use crate::semantic::symbol_table::SymbolTable;
+use crate::semantic::symbol_table::{SymbolInfoError, SymbolTable, SymbolTableError};
 use crate::{ir::typemap::typemap, parser::ast::compunit::CompUnit};
 use koopa::ir::builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::{BasicBlock, FunctionData, Program, Value};
+use thiserror::Error;
 
 macro_rules! new_value {
     ($func_data:expr) => {
@@ -48,6 +49,15 @@ macro_rules! add_bb {
     };
 }
 
+#[derive(Debug, Error)]
+pub enum ProgramBuilderError {
+    #[error("symbol table error: {0}")]
+    SymbolTableError(#[from] SymbolTableError),
+
+    #[error("symbol information error: {0}")]
+    SymbolInfoError(#[from] SymbolInfoError),
+}
+
 pub struct ProgramBuilder<'a> {
     ast: CompUnit,
     symbol_table: &'a SymbolTable,
@@ -58,15 +68,15 @@ impl<'a> ProgramBuilder<'a> {
         Self { ast, symbol_table }
     }
 
-    pub fn build_compunit(&self) -> Program {
+    pub fn build_compunit(&self) -> Result<Program, ProgramBuilderError> {
         let mut prog = Program::new();
         for item in &self.ast.items {
-            self.build_item(&mut prog, item);
+            self.build_item(&mut prog, item)?;
         }
-        prog
+        Ok(prog)
     }
 
-    fn build_item(&self, prog: &mut Program, item: &Item) {
+    fn build_item(&self, prog: &mut Program, item: &Item) -> Result<(), ProgramBuilderError> {
         match item {
             Item::FuncDef(f) => {
                 let func = prog.new_func(FunctionData::new(
@@ -78,41 +88,54 @@ impl<'a> ProgramBuilder<'a> {
                 let entry_bb = new_bb!(func_data, "%entry");
                 add_bb!(func_data, entry_bb);
                 for stmt in &f.body {
-                    self.build_stmt(stmt, func_data, entry_bb);
+                    self.build_stmt(stmt, func_data, entry_bb)?;
                 }
+                Ok(())
             }
         }
     }
 
-    fn build_stmt(&self, stmt: &Statement, func_data: &mut FunctionData, bb: BasicBlock) {
+    fn build_stmt(
+        &self,
+        stmt: &Statement,
+        func_data: &mut FunctionData,
+        bb: BasicBlock,
+    ) -> Result<(), ProgramBuilderError> {
         match stmt {
             Statement::Return(expr) => {
-                let ret_val = self.build_expr(expr, func_data, bb);
+                let ret_val = self.build_expr(expr, func_data, bb)?;
                 let ret_stmt = func_data.dfg_mut().new_value().ret(Some(ret_val));
                 add_instr!(func_data, bb, ret_stmt);
+                Ok(())
             }
-            Statement::ConstDecl(_) => {
-                // void
-            }
+            Statement::ConstDecl(_) => Ok(()),
             _ => unimplemented!(),
         }
     }
 
-    fn build_expr(&self, expr: &Expression, func_data: &mut FunctionData, bb: BasicBlock) -> Value {
+    fn build_expr(
+        &self,
+        expr: &Expression,
+        func_data: &mut FunctionData,
+        bb: BasicBlock,
+    ) -> Result<Value, ProgramBuilderError> {
         match expr {
-            Expression::IntLit(i) => func_data.dfg_mut().new_value().integer(*i),
-            Expression::Ident(id) => match self.symbol_table.is_const_val(id).unwrap() {
-                true => {
-                    let i = self.symbol_table.const_val_of(id).unwrap();
-                    new_value!(func_data).integer(i)
+            Expression::IntLit(i) => Ok(func_data.dfg_mut().new_value().integer(*i)),
+            Expression::Ident(id) => {
+                let symbol = self.symbol_table.find_symbol(id)?;
+                match symbol.is_const_val() {
+                    true => {
+                        let val = symbol.const_val_of()?;
+                        Ok(new_value!(func_data).integer(val))
+                    }
+                    false => unimplemented!(),
                 }
-                false => unimplemented!(),
-            },
+            }
             Expression::Unary(op, expr) => {
-                let value = self.build_expr(expr, func_data, bb);
+                let value = self.build_expr(expr, func_data, bb)?;
                 let zero = func_data.dfg_mut().new_value().integer(0);
                 match op {
-                    UnaryOp::Plus => value,
+                    UnaryOp::Plus => Ok(value),
                     UnaryOp::Minus => {
                         let instr = func_data.dfg_mut().new_value().binary(
                             koopa::ir::BinaryOp::Sub,
@@ -120,7 +143,7 @@ impl<'a> ProgramBuilder<'a> {
                             value,
                         );
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     UnaryOp::LogicalNot => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -129,13 +152,13 @@ impl<'a> ProgramBuilder<'a> {
                             value,
                         );
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                 }
             }
             Expression::Binary(e1, op, e2) => {
-                let v1 = self.build_expr(e1, func_data, bb);
-                let v2 = self.build_expr(e2, func_data, bb);
+                let v1 = self.build_expr(e1, func_data, bb)?;
+                let v2 = self.build_expr(e2, func_data, bb)?;
                 let zero = new_instr!(func_data).integer(0);
                 match op {
                     BinaryOp::Add => {
@@ -145,7 +168,7 @@ impl<'a> ProgramBuilder<'a> {
                             v2,
                         );
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::Sub => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -154,7 +177,7 @@ impl<'a> ProgramBuilder<'a> {
                             v2,
                         );
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::Mul => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -163,7 +186,7 @@ impl<'a> ProgramBuilder<'a> {
                             v2,
                         );
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::Div => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -172,7 +195,7 @@ impl<'a> ProgramBuilder<'a> {
                             v2,
                         );
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::Rem => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -181,7 +204,7 @@ impl<'a> ProgramBuilder<'a> {
                             v2,
                         );
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::Less => {
                         let instr =
@@ -190,7 +213,7 @@ impl<'a> ProgramBuilder<'a> {
                                 .new_value()
                                 .binary(koopa::ir::BinaryOp::Lt, v1, v2);
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::Le => {
                         let instr =
@@ -199,7 +222,7 @@ impl<'a> ProgramBuilder<'a> {
                                 .new_value()
                                 .binary(koopa::ir::BinaryOp::Le, v1, v2);
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::Eq => {
                         let instr =
@@ -208,23 +231,23 @@ impl<'a> ProgramBuilder<'a> {
                                 .new_value()
                                 .binary(koopa::ir::BinaryOp::Eq, v1, v2);
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::Ge => {
                         let instr = new_instr!(func_data).binary(koopa::ir::BinaryOp::Ge, v1, v2);
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::Greater => {
                         let instr = new_instr!(func_data).binary(koopa::ir::BinaryOp::Gt, v1, v2);
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::NotEq => {
                         let instr =
                             new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v1, v2);
                         add_instr!(func_data, bb, instr);
-                        instr
+                        Ok(instr)
                     }
                     BinaryOp::LogicalAnd => {
                         let v1_instr =
@@ -242,7 +265,7 @@ impl<'a> ProgramBuilder<'a> {
                         );
                         add_instr!(func_data, bb, result);
 
-                        result
+                        Ok(result)
                     }
                     BinaryOp::LogicalOr => {
                         let v1_instr =
@@ -260,7 +283,7 @@ impl<'a> ProgramBuilder<'a> {
                         );
                         add_instr!(func_data, bb, result);
 
-                        result
+                        Ok(result)
                     }
                 }
             }

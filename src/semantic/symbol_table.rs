@@ -1,21 +1,9 @@
-use crate::parser::ast::{
-    common::*,
-    compunit::CompUnit,
-    expression::{BinaryOp, Expression, UnaryOp},
-    item::Item,
-    statement::Statement,
-};
+use crate::parser::ast::common::*;
 use std::collections::HashMap;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum SymbolTableError {
-    #[error("{0:?} is not a constant expression")]
-    ConstEvalError(Expression),
-
-    #[error("{0} is not a constant identifer")]
-    ConstIdentError(Ident),
-
     #[error("{0} is not exists in symbol table")]
     SymbolNotFound(Ident),
 }
@@ -32,167 +20,57 @@ impl SymbolTable {
         }
     }
 
-    pub fn check(&mut self, prog: &CompUnit) -> Result<(), SymbolTableError> {
-        for item in &prog.items {
-            self.check_item(item)?;
-        }
-
-        Ok(())
+    /// 往符号表中添加符号。若同名，新的覆盖旧的
+    pub fn add_symbol(&mut self, id: Ident, syminfo: SymbolInfo) {
+        self.map
+            .entry(id)
+            .and_modify(|sym| *sym = syminfo.clone())
+            .or_insert(syminfo.clone());
     }
 
-    fn check_item(&mut self, item: &Item) -> Result<(), SymbolTableError> {
-        match item {
-            Item::FuncDef(f) => {
-                for stmt in &f.body {
-                    self.check_statement(stmt)?;
-                }
-            }
-        }
-
-        Ok(())
+    /// 删除符号表中的符号。若不存在，则忽略，不报错
+    pub fn remove_symbol(&mut self, id: &Ident) {
+        self.map.remove(id);
     }
 
-    fn check_statement(&mut self, stmt: &Statement) -> Result<(), SymbolTableError> {
-        match stmt {
-            Statement::ConstDecl(v) => {
-                for (ty, id, expr) in v {
-                    let val = self.eval_const_val(expr)?;
-                    self.map.insert(
-                        id.clone(),
-                        SymbolInfo {
-                            qualifier: Qualifier::Const,
-                            ty: ty.clone(),
-                            const_val: Some(val),
-                        },
-                    );
-                }
-            }
-            Statement::VarDecl(v) => {
-                for (ty, id, _) in v {
-                    self.map.insert(
-                        id.clone(),
-                        SymbolInfo {
-                            qualifier: Qualifier::Var,
-                            ty: ty.clone(),
-                            const_val: None,
-                        },
-                    );
-                }
-            }
-            Statement::Assign(lval, expr) => {
-                self.find_symbol(lval)?;
-                self.check_expression(expr)?;
-            }
-            Statement::Return(expr) => {
-                self.check_expression(expr)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn eval_const_val(&self, expr: &Expression) -> Result<i32, SymbolTableError> {
-        match expr {
-            Expression::IntLit(i) => Ok(*i),
-            Expression::Ident(id) => {
-                let syminfo = self.find_symbol(id)?;
-                syminfo
-                    .const_val
-                    .ok_or(SymbolTableError::ConstEvalError(expr.clone()))
-            }
-            Expression::Unary(op, expr) => match op {
-                UnaryOp::Plus => self.eval_const_val(expr),
-                UnaryOp::Minus => self.eval_const_val(expr).map(|val| -val),
-                UnaryOp::LogicalNot => self.eval_const_val(expr).map(|val| !val),
-            },
-            Expression::Binary(lhs, op, rhs) => match op {
-                // 算数运算符
-                BinaryOp::Add => Ok(self.eval_const_val(&lhs)? + self.eval_const_val(&rhs)?),
-                BinaryOp::Sub => Ok(self.eval_const_val(&lhs)? - self.eval_const_val(&rhs)?),
-                BinaryOp::Mul => Ok(self.eval_const_val(&lhs)? * self.eval_const_val(&rhs)?),
-                BinaryOp::Div => Ok(self.eval_const_val(&lhs)? / self.eval_const_val(&rhs)?),
-                BinaryOp::Rem => Ok(self.eval_const_val(&lhs)? % self.eval_const_val(&rhs)?),
-
-                // 比较运算符
-                BinaryOp::Less => {
-                    Ok((self.eval_const_val(&lhs)? < self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::Le => {
-                    Ok((self.eval_const_val(&lhs)? <= self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::Eq => {
-                    Ok((self.eval_const_val(&lhs)? == self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::Ge => {
-                    Ok((self.eval_const_val(&lhs)? >= self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::Greater => {
-                    Ok((self.eval_const_val(&lhs)? > self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::NotEq => {
-                    Ok((self.eval_const_val(&lhs)? != self.eval_const_val(&rhs)?).into())
-                }
-
-                // 逻辑运算符
-                BinaryOp::LogicalAnd => Ok((Self::i32_to_bool(self.eval_const_val(&lhs)?)
-                    && Self::i32_to_bool(self.eval_const_val(&rhs)?))
-                .into()),
-                BinaryOp::LogicalOr => Ok((Self::i32_to_bool(self.eval_const_val(&lhs)?)
-                    || Self::i32_to_bool(self.eval_const_val(&rhs)?))
-                .into()),
-            },
-        }
-    }
-
-    fn check_expression(&mut self, expr: &Expression) -> Result<(), SymbolTableError> {
-        match expr {
-            Expression::IntLit(_) => Ok(()),
-            Expression::Ident(id) => Ok(self.find_symbol(id).map(|_| ())?),
-            Expression::Unary(_, expr) => self.check_expression(&expr),
-            Expression::Binary(lhs, _, rhs) => {
-                self.check_expression(&lhs)?;
-                self.check_expression(&rhs)?;
-                Ok(())
-            }
-        }
-    }
-
-    fn find_symbol(&self, id: &Ident) -> Result<&SymbolInfo, SymbolTableError> {
+    pub fn find_symbol(&self, id: &Ident) -> Result<&SymbolInfo, SymbolTableError> {
         self.map
             .get(id)
             .ok_or(SymbolTableError::SymbolNotFound(id.clone()))
     }
+}
 
-    fn i32_to_bool(i: i32) -> bool {
-        i != 0
-    }
-
-    pub fn is_const_val(&self, id: &Ident) -> Result<bool, SymbolTableError> {
-        let syminfo = self.find_symbol(id)?;
-        match syminfo.const_val {
-            Some(_) => Ok(true),
-            None => Ok(false),
-        }
-    }
-
-    pub fn const_val_of(&self, id: &Ident) -> Result<i32, SymbolTableError> {
-        let syminfo = self.find_symbol(id)?;
-        match syminfo.const_val {
-            Some(i) => Ok(i),
-            None => Err(SymbolTableError::ConstIdentError(id.clone())),
-        }
-    }
+#[derive(Debug, Error)]
+pub enum SymbolInfoError {
+    #[error("this is not a constant value")]
+    NotConstValue,
 }
 
 #[derive(Debug, Clone)]
-struct SymbolInfo {
-    qualifier: Qualifier,
-    ty: Type,
-    const_val: Option<i32>,
+pub(crate) struct SymbolInfo {
+    pub(crate) qualifier: Qualifier,
+    pub(crate) ty: Type,
+    pub(crate) const_val: Option<i32>,
+}
+
+impl SymbolInfo {
+    pub fn is_const_val(&self) -> bool {
+        match self.const_val {
+            Some(_) => true,
+            None => false,
+        }
+    }
+
+    pub fn const_val_of(&self) -> Result<i32, SymbolInfoError> {
+        match self.const_val {
+            Some(i) => Ok(i),
+            None => Err(SymbolInfoError::NotConstValue),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Qualifier {
+pub enum Qualifier {
     Var,
     Const,
 }
