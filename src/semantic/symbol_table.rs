@@ -6,6 +6,9 @@ use thiserror::Error;
 pub enum SymbolTableError {
     #[error("{0} is not exists in symbol table")]
     SymbolNotFound(Ident),
+
+    #[error("{0} is redefined")]
+    SymbolRedefined(Ident),
 }
 
 #[derive(Debug, Clone)]
@@ -20,12 +23,15 @@ impl SymbolTable {
         }
     }
 
-    /// 往符号表中添加符号。若同名，新的覆盖旧的
-    pub fn add_symbol(&mut self, id: Ident, syminfo: SymbolInfo) {
-        self.map
-            .entry(id)
-            .and_modify(|sym| *sym = syminfo.clone())
-            .or_insert(syminfo.clone());
+    /// 往符号表中添加符号。若同名，报错
+    pub fn add_symbol(&mut self, id: Ident, syminfo: SymbolInfo) -> Result<(), SymbolTableError> {
+        match self.map.get(&id) {
+            Some(_) => Err(SymbolTableError::SymbolRedefined(id.clone())),
+            None => {
+                self.map.insert(id, syminfo);
+                Ok(())
+            }
+        }
     }
 
     /// 删除符号表中的符号。若不存在，则忽略，不报错
@@ -47,7 +53,7 @@ pub enum SymbolInfoError {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SymbolInfo {
+pub struct SymbolInfo {
     pub(crate) qualifier: Qualifier,
     pub(crate) ty: Type,
     pub(crate) const_val: Option<i32>,
@@ -55,9 +61,9 @@ pub(crate) struct SymbolInfo {
 
 impl SymbolInfo {
     pub fn is_const_val(&self) -> bool {
-        match self.const_val {
-            Some(_) => true,
-            None => false,
+        match self.qualifier {
+            Qualifier::Const => true,
+            Qualifier::Var => false,
         }
     }
 

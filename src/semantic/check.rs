@@ -18,8 +18,8 @@ pub enum SemanticError {
     #[error("{0} is not a constant identifer")]
     ConstIdentError(Ident),
 
-    #[error("{0} is not exists in symbol table")]
-    SymbolNotFound(Ident),
+    #[error("symbol table error: {0}")]
+    SymbolTableError(#[from] SymbolTableError),
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +70,7 @@ impl SemanticChecker {
                             ty: ty.clone(),
                             const_val: Some(val),
                         },
-                    );
+                    )?;
                 }
             }
             Statement::VarDecl(v) => {
@@ -82,13 +82,14 @@ impl SemanticChecker {
                             ty: ty.clone(),
                             const_val: None,
                         },
-                    );
+                    )?;
                 }
             }
             Statement::Assign(lval, expr) => {
-                self.symtable.find_symbol(lval).map_err(|err| match err {
-                    SymbolTableError::SymbolNotFound(id) => SemanticError::SymbolNotFound(id),
-                })?;
+                let symbol = self.symtable.find_symbol(lval)?;
+                if symbol.is_const_val() {
+                    return Err(SemanticError::ConstIdentError(lval.clone()));
+                }
                 self.check_expression(expr)?;
             }
             Statement::Return(expr) => {
@@ -103,9 +104,7 @@ impl SemanticChecker {
         match expr {
             Expression::IntLit(i) => Ok(*i),
             Expression::Ident(id) => {
-                let syminfo = self.symtable.find_symbol(id).map_err(|err| match err {
-                    SymbolTableError::SymbolNotFound(id) => SemanticError::SymbolNotFound(id),
-                })?;
+                let syminfo = self.symtable.find_symbol(id)?;
                 syminfo
                     .const_val
                     .ok_or(SemanticError::ConstEvalError(expr.clone()))
@@ -157,15 +156,7 @@ impl SemanticChecker {
     fn check_expression(&mut self, expr: &Expression) -> Result<(), SemanticError> {
         match expr {
             Expression::IntLit(_) => Ok(()),
-            Expression::Ident(id) => {
-                Ok(self
-                    .symtable
-                    .find_symbol(id)
-                    .map(|_| ())
-                    .map_err(|err| match err {
-                        SymbolTableError::SymbolNotFound(id) => SemanticError::SymbolNotFound(id),
-                    })?)
-            }
+            Expression::Ident(id) => Ok(self.symtable.find_symbol(id).map(|_| ())?),
             Expression::Unary(_, expr) => self.check_expression(&expr),
             Expression::Binary(lhs, _, rhs) => {
                 self.check_expression(&lhs)?;
