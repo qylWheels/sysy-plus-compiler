@@ -1,10 +1,13 @@
+use std::collections::HashMap;
+
+use crate::parser::ast::common::Ident;
 use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
 use crate::semantic::symbol_table::{SymbolInfoError, SymbolTable, SymbolTableError};
 use crate::{ir::typemap::typemap, parser::ast::compunit::CompUnit};
 use koopa::ir::builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder};
-use koopa::ir::{BasicBlock, FunctionData, Program, Value};
+use koopa::ir::{BasicBlock, FunctionData, Program, Type, Value};
 use thiserror::Error;
 
 macro_rules! new_value {
@@ -61,22 +64,28 @@ pub enum ProgramBuilderError {
 pub struct ProgramBuilder<'a> {
     ast: CompUnit,
     symbol_table: &'a SymbolTable,
+    symbol_value_map: SymbolValueMap,
 }
 
 impl<'a> ProgramBuilder<'a> {
     pub fn new(ast: CompUnit, symbol_table: &'a SymbolTable) -> Self {
-        Self { ast, symbol_table }
+        Self {
+            ast,
+            symbol_table,
+            symbol_value_map: SymbolValueMap::new(),
+        }
     }
 
-    pub fn build_compunit(&self) -> Result<Program, ProgramBuilderError> {
+    pub fn build_compunit(&mut self) -> Result<Program, ProgramBuilderError> {
         let mut prog = Program::new();
-        for item in &self.ast.items {
+        let items = &self.ast.items.clone();
+        for item in items {
             self.build_item(&mut prog, item)?;
         }
         Ok(prog)
     }
 
-    fn build_item(&self, prog: &mut Program, item: &Item) -> Result<(), ProgramBuilderError> {
+    fn build_item(&mut self, prog: &mut Program, item: &Item) -> Result<(), ProgramBuilderError> {
         match item {
             Item::FuncDef(f) => {
                 let func = prog.new_func(FunctionData::new(
@@ -96,7 +105,7 @@ impl<'a> ProgramBuilder<'a> {
     }
 
     fn build_stmt(
-        &self,
+        &mut self,
         stmt: &Statement,
         func_data: &mut FunctionData,
         bb: BasicBlock,
@@ -109,7 +118,26 @@ impl<'a> ProgramBuilder<'a> {
                 Ok(())
             }
             Statement::ConstDecl(_) => Ok(()),
-            _ => unimplemented!(),
+            Statement::VarDecl(v) => {
+                for (_, id, expr_opt) in v {
+                    let alloc = new_value!(func_data).alloc(Type::get_i32());
+                    add_instr!(func_data, bb, alloc);
+                    self.symbol_value_map.add_symbol(id.clone(), alloc);
+                    if let Some(expr) = expr_opt {
+                        let val = self.build_expr(expr, func_data, bb)?;
+                        let store = new_value!(func_data).store(val, alloc);
+                        add_instr!(func_data, bb, store);
+                    }
+                }
+                Ok(())
+            }
+            Statement::Assign(lval, expr) => {
+                let lval = self.symbol_value_map.find_symbol(lval);
+                let value = self.build_expr(expr, func_data, bb)?;
+                let instr = new_instr!(func_data).store(value, lval);
+                add_instr!(func_data, bb, instr);
+                Ok(())
+            }
         }
     }
 
@@ -128,7 +156,12 @@ impl<'a> ProgramBuilder<'a> {
                         let val = symbol.const_val_of()?;
                         Ok(new_value!(func_data).integer(val))
                     }
-                    false => unimplemented!(),
+                    false => {
+                        let value = self.symbol_value_map.find_symbol(id);
+                        let instr = new_instr!(func_data).load(value);
+                        add_instr!(func_data, bb, instr);
+                        Ok(instr)
+                    }
                 }
             }
             Expression::Unary(op, expr) => {
@@ -288,5 +321,26 @@ impl<'a> ProgramBuilder<'a> {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SymbolValueMap {
+    map: HashMap<Ident, Value>,
+}
+
+impl SymbolValueMap {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    fn add_symbol(&mut self, id: Ident, value: Value) {
+        self.map.insert(id, value);
+    }
+
+    fn find_symbol(&self, id: &Ident) -> Value {
+        *self.map.get(id).unwrap()
     }
 }
