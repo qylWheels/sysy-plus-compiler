@@ -45,7 +45,7 @@ fn main() {
                 Context {
                     func: None,
                     indent: 0,
-                    reg_alloc_result: None,
+                    alloc_result: None,
                 },
             );
         }

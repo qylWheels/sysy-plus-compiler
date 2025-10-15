@@ -56,16 +56,17 @@ struct ValueLifeRange {
 
 #[derive(Debug, Clone)]
 pub struct RegAllocator {
-    /// IR中所有Value的生命周期
+    /// IR中所有需要分配的Value的生命周期
     life_ranges: Vec<ValueLifeRange>,
 
     /// 可用寄存器池
     available_regs: VecDeque<Register>,
 
     /// 记录每个值分配到了什么
-    reg_allocs: HashMap<Value, Allocation>,
+    allocs: HashMap<Value, Allocation>,
 }
 
+// TODO: 目前的“寄存器分配”算法只会分配内存，后续要改成能分配寄存器的
 impl RegAllocator {
     pub fn new() -> Self {
         Self {
@@ -77,51 +78,75 @@ impl RegAllocator {
                 }
                 deque
             },
-            reg_allocs: HashMap::new(),
+            allocs: HashMap::new(),
         }
     }
 
     fn scan(&mut self, func_data: &FunctionData) {
         let mut map: HashMap<Value, Range<usize>> = HashMap::new();
-        let mut counter = 0;
+        let mut pos = 0;
         for (_, node) in func_data.layout().bbs() {
             for &value in node.insts().keys() {
                 let value_data = func_data.dfg().value(value);
-                if Self::need_alloc_reg(&value_data) {
+                if Self::need_alloc(&value_data) {
                     map.entry(value)
-                        .and_modify(|r| r.end = counter)
-                        .or_insert(counter..usize::MAX);
+                        .and_modify(|r| r.end = pos)
+                        .or_insert(pos..usize::MAX);
                 }
                 match value_data.kind() {
                     ValueKind::Binary(b) => {
                         let (lhs, rhs) = (b.lhs(), b.rhs());
-                        if Self::need_alloc_reg(func_data.dfg().value(lhs)) {
+                        if Self::need_alloc(func_data.dfg().value(lhs)) {
                             map.entry(lhs)
-                                .and_modify(|r| r.end = counter)
-                                .or_insert(counter..usize::MAX);
+                                .and_modify(|r| r.end = pos)
+                                .or_insert(pos..usize::MAX);
                         }
-                        if Self::need_alloc_reg(func_data.dfg().value(rhs)) {
+                        if Self::need_alloc(func_data.dfg().value(rhs)) {
                             map.entry(rhs)
-                                .and_modify(|r| r.end = counter)
-                                .or_insert(counter..usize::MAX);
+                                .and_modify(|r| r.end = pos)
+                                .or_insert(pos..usize::MAX);
                         }
                     }
                     ValueKind::Return(r) => {
                         let value = r.value();
                         match value {
                             Some(v) => {
-                                if Self::need_alloc_reg(func_data.dfg().value(v)) {
+                                if Self::need_alloc(func_data.dfg().value(v)) {
                                     map.entry(v)
-                                        .and_modify(|r| r.end = counter)
-                                        .or_insert(counter..usize::MAX);
+                                        .and_modify(|r| r.end = pos)
+                                        .or_insert(pos..usize::MAX);
                                 }
                             }
                             None => (),
                         }
                     }
-                    _ => unimplemented!(),
+                    ValueKind::Alloc(_) => {
+                        // void
+                    }
+                    ValueKind::Store(s) => {
+                        let (value, dest) = (s.value(), s.dest());
+                        if Self::need_alloc(func_data.dfg().value(value)) {
+                            map.entry(value)
+                                .and_modify(|r| r.end = pos)
+                                .or_insert(pos..usize::MAX);
+                        }
+                        if Self::need_alloc(func_data.dfg().value(dest)) {
+                            map.entry(dest)
+                                .and_modify(|r| r.end = pos)
+                                .or_insert(pos..usize::MAX);
+                        }
+                    }
+                    ValueKind::Load(l) => {
+                        let src = l.src();
+                        if Self::need_alloc(func_data.dfg().value(src)) {
+                            map.entry(src)
+                                .and_modify(|r| r.end = pos)
+                                .or_insert(pos..usize::MAX);
+                        }
+                    }
+                    _ => unimplemented!("{:?}", value_data.kind()),
                 }
-                counter += 1;
+                pos += 1;
             }
         }
         self.life_ranges
@@ -132,34 +157,46 @@ impl RegAllocator {
     }
 
     // TODO: 实现寄存器释放和变量溢出
-    pub fn allocate(&mut self, func_data: &FunctionData) -> &HashMap<Value, Allocation> {
+    pub fn allocate(&mut self, func_data: &FunctionData) -> AllocResult<'_> {
         // 扫描函数中的Value，确定每个Value的生命周期
         self.scan(func_data);
 
-        // 将生命周期按起始顺序先后排序
-        self.life_ranges.sort_by_key(|k| k.life_range.end);
+        // // 将生命周期按起始顺序先后排序
+        // self.life_ranges.sort_by_key(|k| k.life_range.end);
 
-        // 为每一个Value分配寄存器
-        let cloned_life_ranges = self.life_ranges.clone();
-        for ValueLifeRange {
-            value,
-            life_range: _,
-        } in cloned_life_ranges
-        {
-            let reg = self.alloc_reg();
-            self.reg_allocs
-                .entry(value)
-                .or_insert(Allocation::Register(reg));
+        // // 为每一个Value分配寄存器
+        // let cloned_life_ranges = self.life_ranges.clone();
+        // for ValueLifeRange {
+        //     value,
+        //     life_range: _,
+        // } in cloned_life_ranges
+        // {
+        //     let reg = self.alloc_reg();
+        //     self.reg_allocs
+        //         .entry(value)
+        //         .or_insert(Allocation::Register(reg));
+        // }
+
+        // 为每个Value分配内存
+        let mut offset = 0;
+        let values = self.life_ranges.iter().map(|range| range.value);
+        for value in values {
+            self.allocs.insert(value, Allocation::Spilled(offset));
+            offset += 4;
         }
 
-        // dbg!(&self.reg_allocs);
-        &self.reg_allocs
+        dbg!(&self.life_ranges.len());
+
+        AllocResult {
+            allocs: &self.allocs,
+            stack_size: (self.life_ranges.len() * 4 + 15) / 16 * 16, // 按16的倍数向上取整
+        }
     }
 
-    fn need_alloc_reg(value_data: &ValueData) -> bool {
+    fn need_alloc(value_data: &ValueData) -> bool {
         let kind = value_data.kind();
         match kind {
-            ValueKind::Return(_) => false,
+            ValueKind::Return(_) | ValueKind::Store(_) => false,
             _ => true,
         }
     }
@@ -172,4 +209,10 @@ impl RegAllocator {
     fn free_reg(&mut self) {
         todo!()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AllocResult<'a> {
+    pub(crate) stack_size: usize, // 要求该值按16的倍数向上取整
+    pub(crate) allocs: &'a HashMap<Value, Allocation>,
 }
