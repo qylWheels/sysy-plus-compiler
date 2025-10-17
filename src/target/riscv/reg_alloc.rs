@@ -185,7 +185,11 @@ impl RegAllocator {
             offset += 4;
         }
 
-        dbg!(&self.life_ranges.len());
+        // dbg!(&self
+        //     .life_ranges
+        //     .iter()
+        //     .map(|range| func_data.dfg().value(range.value))
+        //     .collect::<Vec<_>>());
 
         AllocResult {
             allocs: &self.allocs,
@@ -196,7 +200,7 @@ impl RegAllocator {
     fn need_alloc(value_data: &ValueData) -> bool {
         let kind = value_data.kind();
         match kind {
-            ValueKind::Return(_) | ValueKind::Store(_) => false,
+            ValueKind::Return(_) | ValueKind::Store(_) | ValueKind::Integer(_) => false,
             _ => true,
         }
     }
