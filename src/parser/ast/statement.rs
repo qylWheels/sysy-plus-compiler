@@ -8,4 +8,6 @@ pub enum Statement {
     ConstDecl(Vec<(Type, Ident, Expression)>),
     VarDecl(Vec<(Type, Ident, Option<Expression>)>),
     Assign(Ident, Expression),
+    Expression(Option<Expression>),
+    Block(Vec<Box<Statement>>)
 }

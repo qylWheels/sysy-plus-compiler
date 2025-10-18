@@ -39,6 +39,12 @@ Stmt: statement::Statement = {
     <VarDecl> => <>,
     <Assign> => <>,
     "return" <Expression> ";" => statement::Statement::Return(<>),
+    ";" => statement::Statement::Expression(None),
+    <Expression> ";" => statement::Statement::Expression(Some(<>)),
+    <Block> => {
+        let v: Vec<Box<_>> = <>.iter().map(|s| Box::new(s.clone())).collect();
+        statement::Statement::Block(v)
+    },
 }
 
 ConstDecl: statement::Statement = {

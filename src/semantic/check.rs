@@ -95,6 +95,7 @@ impl SemanticChecker {
             Statement::Return(expr) => {
                 self.check_expression(expr)?;
             }
+            _=>todo!()
         }
 
         Ok(())

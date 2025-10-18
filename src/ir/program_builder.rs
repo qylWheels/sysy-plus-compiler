@@ -138,6 +138,7 @@ impl<'a> ProgramBuilder<'a> {
                 add_instr!(func_data, bb, instr);
                 Ok(())
             }
+            _=>todo!()
         }
     }
 
