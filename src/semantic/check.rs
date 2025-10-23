@@ -95,7 +95,24 @@ impl SemanticChecker {
             Statement::Return(expr) => {
                 self.check_expression(expr)?;
             }
-            _=>todo!()
+            Statement::Expression(expr) => match expr {
+                Some(expr) => self.check_expression(expr)?,
+                None => (),
+            },
+            Statement::Block(stmts)=>{
+                // 开辟新作用域
+                let parent_scope = self.symtable.clone();
+                let new_scope =parent_scope.enter_scope();
+                self.symtable=new_scope;
+
+                // 在新作用域中进行语义检查
+                for stmt in stmts{
+                    self.check_statement(stmt.as_ref())?;
+                }
+
+                // 返回父作用域
+                self.symtable=self.symtable.exit_scope().unwrap().clone()
+            }
         }
 
         Ok(())
