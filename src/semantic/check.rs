@@ -1,6 +1,8 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     parser::ast::{
-        common::Ident,
+        common::ResolveStatus,
         compunit::CompUnit,
         expression::{BinaryOp, Expression, UnaryOp},
         item::Item,
@@ -16,26 +18,29 @@ pub enum SemanticError {
     ConstEvalError(Expression),
 
     #[error("{0} is not a constant identifer")]
-    ConstIdentError(Ident),
+    ConstIdentError(String),
 
     #[error("symbol table error: {0}")]
     SymbolTableError(#[from] SymbolTableError),
+
+    #[error("unresolved symbol: {0}")]
+    UnresolvedSymbol(String),
 }
 
 #[derive(Debug, Clone)]
 pub struct SemanticChecker {
-    symtable: SymbolTable,
+    symtable: Rc<RefCell<SymbolTable>>,
 }
 
 impl SemanticChecker {
     pub fn new() -> Self {
         Self {
-            symtable: SymbolTable::new(),
+            symtable: Rc::new(RefCell::new(SymbolTable::new())),
         }
     }
 
-    pub fn get_symbol_table(&self) -> &SymbolTable {
-        &self.symtable
+    pub fn get_symbol_table(&self) -> Rc<RefCell<SymbolTable>> {
+        Rc::clone(&self.symtable)
     }
 
     // 执行语义检查
@@ -46,6 +51,7 @@ impl SemanticChecker {
         Ok(())
     }
 
+    // FIXME: 进入函数时应进入子作用域
     fn check_item(&mut self, item: &Item) -> Result<(), SemanticError> {
         match item {
             Item::FuncDef(f) => {
@@ -62,9 +68,17 @@ impl SemanticChecker {
         match stmt {
             Statement::ConstDecl(v) => {
                 for (ty, id, expr) in v {
+                    // 将id对应的作用域信息写入ast
+                    *id.scope.borrow_mut() = ResolveStatus::Resolved(Rc::clone(&self.symtable));
+
+                    // 语义检查
+                    self.check_expression(expr)?;
+
+                    // 计算常量值
                     let val = self.eval_const_val(expr)?;
-                    self.symtable.add_symbol(
-                        id.clone(),
+
+                    self.symtable.borrow_mut().add_symbol(
+                        id.name.clone(),
                         SymbolInfo {
                             qualifier: Qualifier::Const,
                             ty: ty.clone(),
@@ -74,9 +88,18 @@ impl SemanticChecker {
                 }
             }
             Statement::VarDecl(v) => {
-                for (ty, id, _) in v {
-                    self.symtable.add_symbol(
-                        id.clone(),
+                for (ty, id, expr_opt) in v {
+                    // 将id对应的作用域信息写入ast
+                    *id.scope.borrow_mut() = ResolveStatus::Resolved(Rc::clone(&self.symtable));
+
+                    // 语义检查
+                    match expr_opt {
+                        Some(expr) => self.check_expression(expr)?,
+                        None => (),
+                    }
+
+                    self.symtable.borrow_mut().add_symbol(
+                        id.name.clone(),
                         SymbolInfo {
                             qualifier: Qualifier::Var,
                             ty: ty.clone(),
@@ -86,9 +109,12 @@ impl SemanticChecker {
                 }
             }
             Statement::Assign(lval, expr) => {
-                let symbol = self.symtable.find_symbol(lval)?;
+                // 将id对应的作用域信息写入ast
+                *lval.scope.borrow_mut() = ResolveStatus::Resolved(Rc::clone(&self.symtable));
+
+                let symbol = self.symtable.borrow().find_symbol(&lval.name)?;
                 if symbol.is_const_val() {
-                    return Err(SemanticError::ConstIdentError(lval.clone()));
+                    return Err(SemanticError::ConstIdentError(lval.name.clone()));
                 }
                 self.check_expression(expr)?;
             }
@@ -99,19 +125,19 @@ impl SemanticChecker {
                 Some(expr) => self.check_expression(expr)?,
                 None => (),
             },
-            Statement::Block(stmts)=>{
+            Statement::Block(stmts) => {
                 // 开辟新作用域
-                let parent_scope = self.symtable.clone();
-                let new_scope =parent_scope.enter_scope();
-                self.symtable=new_scope;
+                let new_scope = Rc::new(RefCell::new(self.symtable.borrow().enter_scope()));
+                self.symtable = new_scope;
 
                 // 在新作用域中进行语义检查
-                for stmt in stmts{
-                    self.check_statement(stmt.as_ref())?;
+                for stmt in stmts {
+                    self.check_statement(stmt)?;
                 }
 
                 // 返回父作用域
-                self.symtable=self.symtable.exit_scope().unwrap().clone()
+                let parent = self.symtable.borrow().exit_scope().unwrap();
+                self.symtable = parent;
             }
         }
 
@@ -122,7 +148,7 @@ impl SemanticChecker {
         match expr {
             Expression::IntLit(i) => Ok(*i),
             Expression::Ident(id) => {
-                let syminfo = self.symtable.find_symbol(id)?;
+                let syminfo = self.symtable.borrow().find_symbol(&id.name)?;
                 syminfo
                     .const_val
                     .ok_or(SemanticError::ConstEvalError(expr.clone()))
@@ -174,7 +200,13 @@ impl SemanticChecker {
     fn check_expression(&mut self, expr: &Expression) -> Result<(), SemanticError> {
         match expr {
             Expression::IntLit(_) => Ok(()),
-            Expression::Ident(id) => Ok(self.symtable.find_symbol(id).map(|_| ())?),
+            Expression::Ident(id) => {
+                // 将id对应的作用域信息写入ast
+                *id.scope.borrow_mut() = ResolveStatus::Resolved(Rc::clone(&self.symtable));
+
+                let _ = self.symtable.borrow().find_symbol(&id.name)?;
+                Ok(())
+            }
             Expression::Unary(_, expr) => self.check_expression(&expr),
             Expression::Binary(lhs, _, rhs) => {
                 self.check_expression(&lhs)?;

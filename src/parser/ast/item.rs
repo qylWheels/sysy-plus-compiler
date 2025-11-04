@@ -1,3 +1,7 @@
+use std::rc::Rc;
+
+use crate::parser::ast::common::Identifier;
+
 use super::common::*;
 use super::statement::*;
 
@@ -9,6 +13,6 @@ pub enum Item {
 #[derive(Debug, Clone)]
 pub struct FuncDef {
     pub return_type: Type,
-    pub ident: Ident,
+    pub ident: Rc<Identifier>,
     pub body: Vec<Statement>,
 }

@@ -13,8 +13,10 @@ struct Cli {
     /// 生成的目标代码
     pub target: String,
 
+    /// 输入路径
     pub input: PathBuf,
 
+    /// 输出路径
     pub output: PathBuf,
 }
 
@@ -26,17 +28,16 @@ fn main() {
 
     // 语法分析
     let parser = grammar::CompUnitParser::new();
-    let compunit = parser.parse(&i).unwrap();
-    // dbg!(&compunit);
+    let mut compunit = parser.parse(&i).unwrap();
 
     // 语义检查
     let mut checker = SemanticChecker::new();
-    checker.check(&compunit).unwrap(); // TODO: 使用anyhow处理错误
+    checker.check(&mut compunit).unwrap();
 
     // IR/目标代码生成
     let program = program_builder::ProgramBuilder::new(compunit, checker.get_symbol_table())
         .build_compunit()
-        .unwrap(); // TODO: 使用anyhow处理错误
+        .unwrap();
     match cli.target.as_ref() {
         "-koopa" => irgen::irgen(&program, o),
         "-riscv" => {

@@ -1,6 +1,8 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use crate::parser::ast::common::Ident;
+use crate::parser::ast::common::ResolveStatus;
 use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
@@ -59,16 +61,19 @@ pub enum ProgramBuilderError {
 
     #[error("symbol information error: {0}")]
     SymbolInfoError(#[from] SymbolInfoError),
+
+    #[error("symbol-value map error: {0}")]
+    SymbolValueMapError(#[from] SymbolValueMapError),
 }
 
-pub struct ProgramBuilder<'a> {
+pub struct ProgramBuilder {
     ast: CompUnit,
-    symbol_table: &'a SymbolTable,
+    symbol_table: Rc<RefCell<SymbolTable>>,
     symbol_value_map: SymbolValueMap,
 }
 
-impl<'a> ProgramBuilder<'a> {
-    pub fn new(ast: CompUnit, symbol_table: &'a SymbolTable) -> Self {
+impl ProgramBuilder {
+    pub fn new(ast: CompUnit, symbol_table: Rc<RefCell<SymbolTable>>) -> Self {
         Self {
             ast,
             symbol_table,
@@ -89,7 +94,7 @@ impl<'a> ProgramBuilder<'a> {
         match item {
             Item::FuncDef(f) => {
                 let func = prog.new_func(FunctionData::new(
-                    format!("@{}", f.ident.0.clone()),
+                    format!("@{}", f.ident.name),
                     vec![],
                     typemap(&f.return_type),
                 ));
@@ -122,7 +127,7 @@ impl<'a> ProgramBuilder<'a> {
                 for (_, id, expr_opt) in v {
                     let alloc = new_value!(func_data).alloc(Type::get_i32());
                     add_instr!(func_data, bb, alloc);
-                    self.symbol_value_map.add_symbol(id.clone(), alloc);
+                    self.symbol_value_map.add_symbol(id.name.clone(), alloc);
                     if let Some(expr) = expr_opt {
                         let val = self.build_expr(expr, func_data, bb)?;
                         let store = new_value!(func_data).store(val, alloc);
@@ -132,16 +137,32 @@ impl<'a> ProgramBuilder<'a> {
                 Ok(())
             }
             Statement::Assign(lval, expr) => {
-                let lval = self.symbol_value_map.find_symbol(lval);
+                let lval = self.symbol_value_map.find_symbol(&lval.name);
+                // FIXME: 找不到符号的问题出在这
+                // dbg!(&expr);
                 let value = self.build_expr(expr, func_data, bb)?;
                 let instr = new_instr!(func_data).store(value, lval);
                 add_instr!(func_data, bb, instr);
                 Ok(())
             }
-            _=>todo!()
+            Statement::Expression(expr_opt) => match expr_opt {
+                Some(expr) => self.build_expr(expr, func_data, bb).map(|_| ()),
+                None => Ok(()),
+            },
+            Statement::Block(b) => {
+                let new_scope = self.symbol_value_map.enter_scope();
+                self.symbol_value_map = new_scope;
+                for stmt in b {
+                    self.build_stmt(*&stmt, func_data, bb)?;
+                }
+                let parent_scope = self.symbol_value_map.exit_scope()?;
+                self.symbol_value_map = parent_scope;
+                Ok(())
+            }
         }
     }
 
+    // FIXME: 找不到符号的问题出在这
     fn build_expr(
         &self,
         expr: &Expression,
@@ -151,14 +172,20 @@ impl<'a> ProgramBuilder<'a> {
         match expr {
             Expression::IntLit(i) => Ok(func_data.dfg_mut().new_value().integer(*i)),
             Expression::Ident(id) => {
-                let symbol = self.symbol_table.find_symbol(id)?;
+                // dbg!(&id.name);
+                // dbg!(&self.symbol_table);
+                // println!("=====================================");
+                let symbol = match &*id.scope.borrow() {
+                    ResolveStatus::Resolved(scope)=>scope.borrow().find_symbol(&id.name)?,
+                    ResolveStatus::Unresolved=>unreachable!(),
+                };
                 match symbol.is_const_val() {
                     true => {
                         let val = symbol.const_val_of()?;
                         Ok(new_value!(func_data).integer(val))
                     }
                     false => {
-                        let value = self.symbol_value_map.find_symbol(id);
+                        let value = self.symbol_value_map.find_symbol(&id.name);
                         let instr = new_instr!(func_data).load(value);
                         add_instr!(func_data, bb, instr);
                         Ok(instr)
@@ -325,23 +352,52 @@ impl<'a> ProgramBuilder<'a> {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum SymbolValueMapError {
+    #[error("no parent scope")]
+    NoParentScope,
+}
+
 #[derive(Debug, Clone)]
 struct SymbolValueMap {
-    map: HashMap<Ident, Value>,
+    parent: Option<Rc<RefCell<Self>>>,
+    map: HashMap<String, Value>,
 }
 
 impl SymbolValueMap {
     fn new() -> Self {
         Self {
+            parent: None,
             map: HashMap::new(),
         }
     }
 
-    fn add_symbol(&mut self, id: Ident, value: Value) {
+    /// 往当前层级添加ident-value映射
+    fn add_symbol(&mut self, id: String, value: Value) {
         self.map.insert(id, value);
     }
 
-    fn find_symbol(&self, id: &Ident) -> Value {
-        *self.map.get(id).unwrap()
+    /// 从当前层级逐级往上查找ident
+    fn find_symbol(&self, id: &str) -> Value {
+        match self.map.get(id) {
+            Some(val) => *val,
+            None => match &self.parent {
+                Some(parent) => (*parent).borrow().find_symbol(id),
+                None => unreachable!(),
+            },
+        }
+    }
+
+    fn enter_scope(&self) -> Self {
+        let mut new_scope = Self::new();
+        new_scope.parent = Some(Rc::new(RefCell::new(self.clone())));
+        new_scope
+    }
+
+    fn exit_scope(&self) -> Result<Self, SymbolValueMapError> {
+        match self.parent.as_ref() {
+            Some(parent) => Ok((*parent).borrow().clone()),
+            None => Err(SymbolValueMapError::NoParentScope),
+        }
     }
 }

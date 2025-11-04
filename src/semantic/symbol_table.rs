@@ -5,10 +5,10 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum SymbolTableError {
     #[error("{0} is not exists in symbol table")]
-    SymbolNotFound(Ident),
+    SymbolNotFound(String),
 
     #[error("{0} is redefined")]
-    SymbolRedefined(Ident),
+    SymbolRedefined(String),
 
     #[error("this scope has no parent scope")]
     NoParentScope,
@@ -17,7 +17,7 @@ pub enum SymbolTableError {
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
     parent: Option<Rc<RefCell<SymbolTable>>>,
-    map: HashMap<Ident, SymbolInfo>,
+    map: HashMap<String, SymbolInfo>,
 }
 
 impl SymbolTable {
@@ -33,7 +33,11 @@ impl SymbolTable {
     }
 
     /// 往符号表当前层级中添加符号。若同名，报错
-    pub fn add_symbol(&mut self, id: Ident, syminfo: SymbolInfo) -> Result<(), SymbolTableError> {
+    pub fn add_symbol(
+        &mut self,
+        id: String,
+        syminfo: SymbolInfo,
+    ) -> Result<(), SymbolTableError> {
         match self.map.get(&id) {
             Some(_) => Err(SymbolTableError::SymbolRedefined(id.clone())),
             None => {
@@ -44,25 +48,25 @@ impl SymbolTable {
     }
 
     /// 删除符号表当前层级中的符号。若不存在，则忽略，不报错
-    pub fn remove_symbol(&mut self, id: &Ident) {
+    pub fn remove_symbol(&mut self, id: &String) {
         self.map.remove(id);
     }
 
     /// 从当前层级到顶级，依次查找符号表中的符号
-    pub fn find_symbol(&self, id: &Ident) -> Result<SymbolInfo, SymbolTableError> {
+    pub fn find_symbol(&self, id: &String) -> Result<SymbolInfo, SymbolTableError> {
         let result = self.map.get(id);
         match result {
             Some(info) => Ok(info.clone()),
             None => {
                 if self.is_top_scope() {
-                    Err(SymbolTableError::SymbolNotFound(id.clone()))
+                    Err(SymbolTableError::SymbolNotFound((*id).clone()))
                 } else {
                     self.parent
                         .as_ref()
                         .unwrap()
                         .as_ref()
                         .borrow()
-                        .find_symbol(&id)
+                        .find_symbol(id)
                 }
             }
         }
@@ -85,9 +89,9 @@ impl SymbolTable {
 
     /// 退出作用域，返回到父作用域
     /// invariant: 自身必须有父作用域，否则返回错误
-    pub fn exit_scope(&self) -> Result<SymbolTable, SymbolTableError> {
+    pub fn exit_scope(&self) -> Result<Rc<RefCell<SymbolTable>>, SymbolTableError> {
         match self.parent.as_ref() {
-            Some(parent) => Ok((*parent).borrow().clone()),
+            Some(parent) => Ok(Rc::clone(parent)),
             None => Err(SymbolTableError::NoParentScope),
         }
     }
@@ -99,6 +103,7 @@ pub enum SymbolInfoError {
     NotConstValue,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SymbolInfo {
     pub(crate) qualifier: Qualifier,

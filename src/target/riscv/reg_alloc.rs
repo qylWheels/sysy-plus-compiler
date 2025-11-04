@@ -48,12 +48,14 @@ pub enum Allocation {
 }
 
 /// Value的生命周期
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct ValueLifeRange {
     value: Value,
     life_range: Range<usize>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RegAllocator {
     /// IR中所有需要分配的Value的生命周期
@@ -205,6 +207,7 @@ impl RegAllocator {
         }
     }
 
+    #[allow(dead_code)]
     fn alloc_reg(&mut self) -> Register {
         self.available_regs.pop_front().unwrap()
     }

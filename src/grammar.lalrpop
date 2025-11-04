@@ -1,4 +1,6 @@
 use crate::parser::ast::*;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 grammar;
 
@@ -17,10 +19,10 @@ pub CompUnit: compunit::CompUnit = {
 }
 
 FuncDef: item::Item = {
-    <frt:FuncRetType> <id:Ident> "(" ")" <b:Block> => {
+    <frt:FuncRetType> <id:Identifier> "(" ")" <b:Block> => {
         item::Item::FuncDef(item::FuncDef {
             return_type: frt,
-            ident: id,
+            ident: Rc::new(id),
             body: b,
         })
     }
@@ -51,33 +53,33 @@ ConstDecl: statement::Statement = {
     "const" <ty:Type> <first:ConstDef> <rest:("," <ConstDef>)*> ";" => {
         let mut v = vec![first];
         v.extend(rest);
-        let v: Vec<(common::Type, common::Ident, expression::Expression)>
-            = v.iter().map(|elem| (ty.clone(), elem.0.clone(), elem.1.clone())).collect();
+        let v: Vec<(common::Type, Rc<common::Identifier>, expression::Expression)>
+            = v.iter().map(|elem| (ty.clone(), Rc::new(elem.0.clone()), elem.1.clone())).collect();
         statement::Statement::ConstDecl(v)
     }
 }
 
-ConstDef: (common::Ident, expression::Expression) = {
-    <id:Ident> "=" <e:Expression> => (id, e),
+ConstDef: (common::Identifier, expression::Expression) = {
+    <id:Identifier> "=" <e:Expression> => (id, e),
 }
 
 VarDecl: statement::Statement = {
     <ty:Type> <first:VarDef> <rest:("," <VarDef>)*> ";" => {
         let mut v = vec![first];
         v.extend(rest);
-        let v: Vec<(common::Type, common::Ident, Option<expression::Expression>)>
-            = v.iter().map(|elem| (ty.clone(), elem.0.clone(), elem.1.clone())).collect();
+        let v: Vec<(common::Type, Rc<common::Identifier>, Option<expression::Expression>)>
+            = v.iter().map(|elem| (ty.clone(), Rc::new(elem.0.clone()), elem.1.clone())).collect();
         statement::Statement::VarDecl(v)
     }
 }
 
-VarDef: (common::Ident, Option<expression::Expression>) = {
-    <id:Ident> => (id, None),
-    <id:Ident> "=" <e:Expression> => (id, Some(e)),
+VarDef: (common::Identifier, Option<expression::Expression>) = {
+    <id:Identifier> => (id, None),
+    <id:Identifier> "=" <e:Expression> => (id, Some(e)),
 }
 
 Assign: statement::Statement = {
-    <id:Ident> "=" <e:Expression> ";" => statement::Statement::Assign(id, e)
+    <id:Identifier> "=" <e:Expression> ";" => statement::Statement::Assign(Rc::new(id), e)
 }
 
 Expression: expression::Expression = {
@@ -144,7 +146,7 @@ UnaryExpression: expression::Expression = {
 
 PrimaryExpression: expression::Expression = {
     <IntLit> => expression::Expression::IntLit(<>),
-    <Ident> => expression::Expression::Ident(<>),
+    <Identifier> => expression::Expression::Ident(Rc::new(<>)),
     "(" <Expression> ")" => <>
 }
 
@@ -152,8 +154,12 @@ Type: common::Type = {
     "int" => common::Type::Simple("int".to_string()),
 }
 
-Ident: common::Ident = {
-    r"[_a-zA-Z][_a-zA-Z0-9]*" => common::Ident(<>.to_string()),
+Identifier: common::Identifier = {
+    r"[_a-zA-Z][_a-zA-Z0-9]*" => common::Identifier {
+        name: <>.to_string(),
+        scope: RefCell::new(common::ResolveStatus::Unresolved),
+        // uuid: Uuid::new_v4(),
+    },
 }
 
 IntLit: i32 = {
