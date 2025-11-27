@@ -15,73 +15,80 @@ pub enum SymbolTableError {
 }
 
 #[derive(Debug, Clone)]
-pub struct SymbolTable {
-    parent: Option<Rc<RefCell<SymbolTable>>>,
+
+struct SymbolTableInner {
+    parent: Option<Rc<RefCell<SymbolTableInner>>>,
     map: HashMap<String, SymbolInfo>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct SymbolTable {
+    inner: Rc<RefCell<SymbolTableInner>>,
+}
+
 impl SymbolTable {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            parent: None,
-            map: HashMap::new(),
+            inner: Rc::new(RefCell::new(SymbolTableInner {
+                parent: None,
+                map: HashMap::new(),
+            })),
         }
     }
 
-    pub fn set_parent(&mut self, parent: &SymbolTable) {
-        self.parent = Some(Rc::new(RefCell::new(parent.clone())));
+    pub(crate) fn set_parent(&self, parent: &SymbolTable) {
+        self.inner.borrow_mut().parent = Some(Rc::clone(&parent.inner));
     }
 
     /// 往符号表当前层级中添加符号。若同名，报错
-    pub fn add_symbol(
-        &mut self,
+    pub(crate) fn add_symbol(
+        &self,
         id: String,
         syminfo: SymbolInfo,
     ) -> Result<(), SymbolTableError> {
-        match self.map.get(&id) {
+        let mut inner = self.inner.borrow_mut();
+        let result = inner.map.get(&id);
+        match result {
             Some(_) => Err(SymbolTableError::SymbolRedefined(id.clone())),
             None => {
-                self.map.insert(id, syminfo);
+                inner.map.insert(id, syminfo);
                 Ok(())
             }
         }
     }
 
     /// 删除符号表当前层级中的符号。若不存在，则忽略，不报错
-    pub fn remove_symbol(&mut self, id: &String) {
-        self.map.remove(id);
+    pub(crate) fn remove_symbol(&self, id: &String) {
+        self.inner.borrow_mut().map.remove(id);
     }
 
     /// 从当前层级到顶级，依次查找符号表中的符号
-    pub fn find_symbol(&self, id: &String) -> Result<SymbolInfo, SymbolTableError> {
-        let result = self.map.get(id);
-        match result {
+    pub(crate) fn find_symbol(&self, id: &String) -> Result<SymbolInfo, SymbolTableError> {
+        match self.inner.borrow().map.get(id) {
             Some(info) => Ok(info.clone()),
             None => {
                 if self.is_top_scope() {
                     Err(SymbolTableError::SymbolNotFound((*id).clone()))
                 } else {
-                    self.parent
-                        .as_ref()
-                        .unwrap()
-                        .as_ref()
-                        .borrow()
-                        .find_symbol(id)
+                    let symtable = SymbolTable {
+                        inner: Rc::clone(self.inner.borrow().parent.as_ref().unwrap()),
+                    };
+                    symtable.find_symbol(id)
                 }
             }
         }
     }
 
     /// 进入新的子作用域
-    pub fn enter_scope(&self) -> SymbolTable {
-        let mut child = Self::new();
+    pub(crate) fn enter_scope(&self) -> SymbolTable {
+        let child = Self::new();
         child.set_parent(&self);
         child
     }
 
     /// 判断自身是否已经是顶层作用域（即没有父作用域）
-    pub fn is_top_scope(&self) -> bool {
-        match self.parent {
+    pub(crate) fn is_top_scope(&self) -> bool {
+        match self.inner.borrow().parent {
             Some(_) => false,
             None => true,
         }
@@ -89,9 +96,11 @@ impl SymbolTable {
 
     /// 退出作用域，返回到父作用域
     /// invariant: 自身必须有父作用域，否则返回错误
-    pub fn exit_scope(&self) -> Result<Rc<RefCell<SymbolTable>>, SymbolTableError> {
-        match self.parent.as_ref() {
-            Some(parent) => Ok(Rc::clone(parent)),
+    pub(crate) fn exit_scope(&self) -> Result<SymbolTable, SymbolTableError> {
+        match self.inner.borrow().parent.as_ref() {
+            Some(parent) => Ok(SymbolTable {
+                inner: Rc::clone(parent),
+            }),
             None => Err(SymbolTableError::NoParentScope),
         }
     }
@@ -104,7 +113,7 @@ pub enum SymbolInfoError {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymbolInfo {
     pub(crate) qualifier: Qualifier,
     pub(crate) ty: Type,
@@ -112,14 +121,14 @@ pub struct SymbolInfo {
 }
 
 impl SymbolInfo {
-    pub fn is_const_val(&self) -> bool {
+    pub(crate) fn is_const_val(&self) -> bool {
         match self.qualifier {
             Qualifier::Const => true,
             Qualifier::Var => false,
         }
     }
 
-    pub fn const_val_of(&self) -> Result<i32, SymbolInfoError> {
+    pub(crate) fn const_val_of(&self) -> Result<i32, SymbolInfoError> {
         match self.const_val {
             Some(i) => Ok(i),
             None => Err(SymbolInfoError::NotConstValue),
@@ -127,8 +136,8 @@ impl SymbolInfo {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Qualifier {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Qualifier {
     Var,
     Const,
 }

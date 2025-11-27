@@ -1,15 +1,13 @@
-use std::rc::Rc;
-
-use crate::parser::ast::common::*;
-use crate::parser::ast::expression::*;
+use super::common::*;
+use super::expression::*;
 
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum Statement {
     Return(Expression),
-    ConstDecl(Vec<(Type, Rc<Identifier>, Expression)>),
-    VarDecl(Vec<(Type, Rc<Identifier>, Option<Expression>)>),
-    Assign(Rc<Identifier>, Expression),
+    ConstDecl(Vec<(Type, Identifier, Expression)>),
+    VarDecl(Vec<(Type, Identifier, Option<Expression>)>),
+    Assign(Identifier, Expression),
     Expression(Option<Expression>),
-    Block(Vec<Box<Statement>>)
+    Block(Vec<Box<Statement>>),
 }

@@ -7,7 +7,7 @@ use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
 use crate::semantic::symbol_table::{SymbolInfoError, SymbolTable, SymbolTableError};
-use crate::{ir::typemap::typemap, parser::ast::compunit::CompUnit};
+use crate::{ir::typemap::typemap, parser::ast::compile_unit::CompileUnit};
 use koopa::ir::builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::{BasicBlock, FunctionData, Program, Type, Value};
 use thiserror::Error;
@@ -67,16 +67,16 @@ pub enum ProgramBuilderError {
 }
 
 pub struct ProgramBuilder {
-    ast: CompUnit,
-    symbol_table: Rc<RefCell<SymbolTable>>,
+    ast: CompileUnit,
+    // TODO: 废弃symbol_table字段
+    // symbol_table: SymbolTable,
     symbol_value_map: SymbolValueMap,
 }
 
 impl ProgramBuilder {
-    pub fn new(ast: CompUnit, symbol_table: Rc<RefCell<SymbolTable>>) -> Self {
+    pub fn new(ast: CompileUnit) -> Self {
         Self {
             ast,
-            symbol_table,
             symbol_value_map: SymbolValueMap::new(),
         }
     }
@@ -93,6 +93,11 @@ impl ProgramBuilder {
     fn build_item(&mut self, prog: &mut Program, item: &Item) -> Result<(), ProgramBuilderError> {
         match item {
             Item::FuncDef(f) => {
+                // 进入子作用域
+                let new_scope = self.symbol_value_map.enter_scope();
+                self.symbol_value_map = new_scope;
+
+                // 创建函数框架
                 let func = prog.new_func(FunctionData::new(
                     format!("@{}", f.ident.name),
                     vec![],
@@ -101,9 +106,16 @@ impl ProgramBuilder {
                 let func_data = prog.func_mut(func);
                 let entry_bb = new_bb!(func_data, "%entry");
                 add_bb!(func_data, entry_bb);
+
+                // 生成函数中的语句
                 for stmt in &f.body {
                     self.build_stmt(stmt, func_data, entry_bb)?;
                 }
+
+                // 返回父作用域
+                let old_scope = self.symbol_value_map.exit_scope()?;
+                self.symbol_value_map = old_scope;
+
                 Ok(())
             }
         }
@@ -150,13 +162,19 @@ impl ProgramBuilder {
                 None => Ok(()),
             },
             Statement::Block(b) => {
+                // 进入子作用域
                 let new_scope = self.symbol_value_map.enter_scope();
                 self.symbol_value_map = new_scope;
+
+                // 生成块中的语句
                 for stmt in b {
                     self.build_stmt(*&stmt, func_data, bb)?;
                 }
+
+                // 返回父作用域
                 let parent_scope = self.symbol_value_map.exit_scope()?;
                 self.symbol_value_map = parent_scope;
+
                 Ok(())
             }
         }
@@ -175,13 +193,13 @@ impl ProgramBuilder {
                 // dbg!(&id.name);
                 // dbg!(&self.symbol_table);
                 // println!("=====================================");
-                let symbol = match &*id.scope.borrow() {
-                    ResolveStatus::Resolved(scope)=>scope.borrow().find_symbol(&id.name)?,
-                    ResolveStatus::Unresolved=>unreachable!(),
+                let syminfo = match &*id.resolve_status.borrow() {
+                    ResolveStatus::Resolved(syminfo) => syminfo.clone(),
+                    ResolveStatus::Unresolved => unreachable!(),
                 };
-                match symbol.is_const_val() {
+                match syminfo.is_const_val() {
                     true => {
-                        let val = symbol.const_val_of()?;
+                        let val = syminfo.const_val_of()?;
                         Ok(new_value!(func_data).integer(val))
                     }
                     false => {

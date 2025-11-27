@@ -27,7 +27,7 @@ fn main() {
     let mut o = fs::File::create(cli.output).unwrap();
 
     // 语法分析
-    let parser = grammar::CompUnitParser::new();
+    let parser = grammar::CompileUnitParser::new();
     let mut compunit = parser.parse(&i).unwrap();
 
     // 语义检查
@@ -35,7 +35,7 @@ fn main() {
     checker.check(&mut compunit).unwrap();
 
     // IR/目标代码生成
-    let program = program_builder::ProgramBuilder::new(compunit, checker.get_symbol_table())
+    let program = program_builder::ProgramBuilder::new(compunit)
         .build_compunit()
         .unwrap();
     match cli.target.as_ref() {

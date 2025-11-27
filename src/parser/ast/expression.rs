@@ -1,12 +1,10 @@
-use std::rc::Rc;
-
-use crate::parser::ast::common::Identifier;
+use super::common::Identifier;
 
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum Expression {
     IntLit(i32),
-    Ident(Rc<Identifier>),
+    Ident(Identifier),
     Unary(UnaryOp, Box<Expression>),
     Binary(Box<Expression>, BinaryOp, Box<Expression>),
 }
