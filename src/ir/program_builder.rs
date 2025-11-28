@@ -6,7 +6,7 @@ use crate::parser::ast::common::ResolveStatus;
 use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
-use crate::semantic::symbol_table::{SymbolInfoError, SymbolTable, SymbolTableError};
+use crate::semantic::symbol_table::{SymbolInfoError, SymbolTableError};
 use crate::{ir::typemap::typemap, parser::ast::compile_unit::CompileUnit};
 use koopa::ir::builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::{BasicBlock, FunctionData, Program, Type, Value};
@@ -68,8 +68,6 @@ pub enum ProgramBuilderError {
 
 pub struct ProgramBuilder {
     ast: CompileUnit,
-    // TODO: 废弃symbol_table字段
-    // symbol_table: SymbolTable,
     symbol_value_map: SymbolValueMap,
 }
 
@@ -150,8 +148,6 @@ impl ProgramBuilder {
             }
             Statement::Assign(lval, expr) => {
                 let lval = self.symbol_value_map.find_symbol(&lval.name);
-                // FIXME: 找不到符号的问题出在这
-                // dbg!(&expr);
                 let value = self.build_expr(expr, func_data, bb)?;
                 let instr = new_instr!(func_data).store(value, lval);
                 add_instr!(func_data, bb, instr);
@@ -180,7 +176,6 @@ impl ProgramBuilder {
         }
     }
 
-    // FIXME: 找不到符号的问题出在这
     fn build_expr(
         &self,
         expr: &Expression,

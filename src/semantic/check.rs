@@ -37,12 +37,6 @@ impl SemanticChecker {
         }
     }
 
-    /// 获取SemanticChecker当前保存的作用域的符号表
-    /// TODO: 废弃此API
-    pub(crate) fn get_symbol_table(&self) -> SymbolTable {
-        self.symtable.clone()
-    }
-
     // 执行语义检查
     pub fn check(&mut self, prog: &CompileUnit) -> Result<(), SemanticError> {
         for item in &prog.items {
