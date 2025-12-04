@@ -10,4 +10,7 @@ pub enum Statement {
     Assign(Identifier, Expression),
     Expression(Option<Expression>),
     Block(Vec<Box<Statement>>),
+
+    /// 条件, then分支, else分支
+    If(Expression, Box<Statement>, Option<Box<Statement>>)
 }

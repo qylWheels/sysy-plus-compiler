@@ -144,6 +144,7 @@ impl SemanticChecker {
                 let parent = self.symtable.exit_scope()?;
                 self.symtable = parent;
             }
+            _ => unimplemented!(),
         }
 
         Ok(())

@@ -37,6 +37,11 @@ Block: Vec<statement::Statement> = {
 }
 
 Stmt: statement::Statement = {
+    <OpenedStmt> => <>,
+    <ClosedStmt> => <>,
+}
+
+NonIf: statement::Statement = {
     <ConstDecl> => <>,
     <VarDecl> => <>,
     <Assign> => <>,
@@ -80,6 +85,19 @@ VarDef: (common::Identifier, Option<expression::Expression>) = {
 
 Assign: statement::Statement = {
     <id:Identifier> "=" <e:Expression> ";" => statement::Statement::Assign(id, e)
+}
+
+ClosedStmt: statement::Statement = {
+    "if" "(" <guard:Expression> ")" <then_branch:ClosedStmt> "else" <else_branch:ClosedStmt> =>
+        statement::Statement::If(guard, Box::new(then_branch), Some(Box::new(else_branch))),
+    <NonIf> => <>,
+}
+
+OpenedStmt: statement::Statement = {
+    "if" "(" <guard:Expression> ")" <then_branch:Stmt> =>
+        statement::Statement::If(guard, Box::new(then_branch), None),
+    "if" "(" <guard:Expression> ")" <then_branch:ClosedStmt> "else" <else_branch:OpenedStmt> =>
+        statement::Statement::If(guard, Box::new(then_branch), Some(Box::new(else_branch))),
 }
 
 Expression: expression::Expression = {

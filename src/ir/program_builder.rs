@@ -173,6 +173,7 @@ impl ProgramBuilder {
 
                 Ok(())
             }
+            _ => unimplemented!(),
         }
     }
 
