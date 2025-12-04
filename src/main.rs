@@ -28,12 +28,12 @@ fn main() {
 
     // 语法分析
     let parser = grammar::CompileUnitParser::new();
-    let mut compunit = parser.parse(&i).unwrap();
+    let compunit = parser.parse(&i).unwrap();
     dbg!(&compunit);
 
     // 语义检查
     let mut checker = SemanticChecker::new();
-    checker.check(&mut compunit).unwrap();
+    checker.check(&compunit).unwrap();
 
     // IR/目标代码生成
     let program = program_builder::ProgramBuilder::new(compunit)
