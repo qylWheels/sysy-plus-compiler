@@ -144,7 +144,25 @@ impl SemanticChecker {
                 let parent = self.symtable.exit_scope()?;
                 self.symtable = parent;
             }
-            _ => unimplemented!(),
+            Statement::If(guard, then_branch, else_branch) => {
+                // 检查条件
+                self.check_expression(guard)?;
+
+                // 检查then分支
+                self.symtable = self.symtable.enter_scope();
+                self.check_statement(&then_branch)?;
+                self.symtable = self.symtable.exit_scope()?;
+
+                // 检查else分支
+                match else_branch {
+                    Some(else_branch) => {
+                        self.symtable = self.symtable.enter_scope();
+                        self.check_statement(&else_branch)?;
+                        self.symtable = self.symtable.exit_scope()?;
+                    }
+                    None => (),
+                }
+            }
         }
 
         Ok(())
