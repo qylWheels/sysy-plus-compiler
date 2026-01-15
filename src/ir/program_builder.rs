@@ -78,16 +78,6 @@ fn last_instr(func_data: &mut FunctionData, bb: BasicBlock) -> Option<&ValueData
         None => None,
     }
 }
-// macro_rules! last_instr {
-//     ($func_data:expr, $bb:expr) => {
-//         $func_data
-//             .layout_mut()
-//             .bb_mut($bb)
-//             .insts()
-//             .back_key()
-//             .map(|value| $func_data.dfg().value(*value))
-//     };
-// }
 
 #[derive(Debug, Error)]
 pub enum ProgramBuilderError {
@@ -305,17 +295,6 @@ impl ProgramBuilder {
                 };
                 add_instr!(func_data, guard_bb, branch_ir);
 
-                // 若有ought_to_jump，则在merge块末尾添加跳转到ought_to_jump的指令
-                // let merge_bb_last_instr = last_instr(func_data, merge_bb);
-                // if (merge_bb_last_instr.is_none() || !Self::is_jump(merge_bb_last_instr.unwrap()))
-                //     && ctx.ought_to_jump.is_some()
-                // {
-                //     let jump_to_ought_to_jump =
-                //         new_instr!(func_data).jump(ctx.ought_to_jump.unwrap());
-                //     // FIXME：为什么会加到merge块的开头？（答案在test.sysy的merge_3里）
-                //     add_instr!(func_data, merge_bb, jump_to_ought_to_jump);
-                // }
-
                 Ok(Context {
                     in_block: merge_bb,
                     ought_to_jump: None,
@@ -371,9 +350,6 @@ impl ProgramBuilder {
         match expr {
             Expression::IntLit(i) => Ok(func_data.dfg_mut().new_value().integer(*i)),
             Expression::Ident(id) => {
-                // dbg!(&id.name);
-                // dbg!(&self.symbol_table);
-                // println!("=====================================");
                 let syminfo = match &*id.resolve_status.borrow() {
                     ResolveStatus::Resolved(syminfo) => syminfo.clone(),
                     ResolveStatus::Unresolved => unreachable!(),
