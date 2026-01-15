@@ -60,9 +60,6 @@ macro_rules! add_bb {
 struct Context {
     /// 生成当前内容时所在的基本块
     in_block: BasicBlock,
-
-    /// 生成完当前内容后需要跳转到的基本块
-    ought_to_jump: Option<BasicBlock>,
 }
 
 // 获取基本块的最后一条指令
@@ -139,7 +136,6 @@ impl ProgramBuilder {
                             func_data,
                             &Context {
                                 in_block: bb,
-                                ought_to_jump: None,
                             },
                         )?
                         .in_block;
@@ -241,7 +237,6 @@ impl ProgramBuilder {
                     func_data,
                     &Context {
                         in_block: then_bb,
-                        ought_to_jump: Some(merge_bb),
                     },
                 )?;
                 // 若完成指令生成后，最后一个指令不存在/不为跳转指令，则将jump_to_merge指令加入
@@ -261,7 +256,6 @@ impl ProgramBuilder {
                             func_data,
                             &Context {
                                 in_block: else_bb,
-                                ought_to_jump: Some(merge_bb),
                             },
                         )?;
 
@@ -286,7 +280,6 @@ impl ProgramBuilder {
                     func_data,
                     &Context {
                         in_block: guard_bb,
-                        ought_to_jump: None,
                     },
                 )?;
                 let branch_ir = match else_bb {
@@ -297,7 +290,6 @@ impl ProgramBuilder {
 
                 Ok(Context {
                     in_block: merge_bb,
-                    ought_to_jump: None,
                 })
             }
         }
