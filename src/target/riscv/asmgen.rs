@@ -119,9 +119,24 @@ impl GenerateRiscv for FunctionData {
         )
         .unwrap();
 
-        // 生成函数体代码
-        for (_, node) in self.layout().bbs() {
-            for &inst in node.insts().keys() {
+        // 生成函数内容
+        // dbg!(&self.layout().bbs().len());
+        for (bb, bbnode) in self.layout().bbs() {
+            // 生成块名（除了entry块）
+            let bbdata = self.dfg().bb(*bb);
+            let bbname = bbdata
+                .name()
+                .as_ref()
+                .unwrap()
+                .chars()
+                .skip(1)
+                .collect::<String>();
+            if bbname != "entry" {
+                writeln!(dest, "{}:", bbname).unwrap();
+            }
+
+            // 生成函数内的实际语句
+            for &inst in bbnode.insts().keys() {
                 inst.generate(
                     dest,
                     Context {
@@ -305,12 +320,12 @@ impl GenerateRiscv for Value {
                     }
 
                     // 逻辑操作代码生成
-                    BinaryOp::And=>{
+                    BinaryOp::And => {
                         writeln!(dest, "{}and a0, a0, a1", " ".repeat(ctx.indent)).unwrap();
                         writeln!(dest, "{}sw a0, {}(sp)", " ".repeat(ctx.indent), self_offset)
                             .unwrap();
                     }
-                    BinaryOp::Or=>{
+                    BinaryOp::Or => {
                         writeln!(dest, "{}or a0, a0, a1", " ".repeat(ctx.indent)).unwrap();
                         writeln!(dest, "{}sw a0, {}(sp)", " ".repeat(ctx.indent), self_offset)
                             .unwrap();
@@ -321,6 +336,8 @@ impl GenerateRiscv for Value {
 
                 ResultValue::KoopaRegister(*self)
             }
+
+            // XXX: 下面的代码利用寄存器而非内存来生成asm，先别删
             // ValueKind::Binary(b) => {
             //     let (lhs, op, rhs) = (b.lhs(), b.op(), b.rhs());
             //     let lhs_valuedata = get_valuedata!(lhs, ctx.func.unwrap());
@@ -1222,6 +1239,47 @@ impl GenerateRiscv for Value {
                 )
                 .unwrap();
 
+                ResultValue::None
+            }
+            ValueKind::Jump(j) => {
+                let target = j.target();
+                let bbdata = ctx.func.unwrap().dfg().bb(target);
+                let bbname: String = bbdata.name().as_ref().unwrap().chars().skip(1).collect();
+                writeln!(dest, "{}j {}", " ".repeat(ctx.indent), bbname).unwrap();
+
+                ResultValue::None
+            }
+            ValueKind::Branch(b) => {
+                // 将cond的值存入a0寄存器
+                let cond = b.cond();
+                match get_valuedata!(cond, ctx.func.unwrap()).kind() {
+                    ValueKind::Integer(i) => {
+                        writeln!(dest, "{}li a0, {}", " ".repeat(ctx.indent), i.value()).unwrap();
+                    }
+                    _ => {
+                        let cond_offset = match get_allocation!(&cond, ctx) {
+                            Allocation::Spilled(offset) => offset,
+                            _ => unimplemented!(),
+                        };
+                        writeln!(dest, "{}lw a0, {}(sp)", " ".repeat(ctx.indent), cond_offset)
+                            .unwrap();
+                    }
+                }
+
+                // 获取branch的两个分支的bb的名称
+                let (target1, target2) = (b.true_bb(), b.false_bb());
+                let (bbdata1, bbdata2) = (
+                    ctx.func.unwrap().dfg().bb(target1),
+                    ctx.func.unwrap().dfg().bb(target2),
+                );
+                let (bbname1, bbname2): (String, String) = (
+                    bbdata1.name().as_ref().unwrap().chars().skip(1).collect(),
+                    bbdata2.name().as_ref().unwrap().chars().skip(1).collect(),
+                );
+
+                // 生成跳转指令
+                writeln!(dest, "{}bnez a0, {}", " ".repeat(ctx.indent), bbname1).unwrap();
+                writeln!(dest, "{}j {}", " ".repeat(ctx.indent), bbname2).unwrap();
                 ResultValue::None
             }
             _ => unimplemented!(),

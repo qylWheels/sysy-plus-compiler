@@ -1,6 +1,7 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::OnceLock;
 
 use crate::parser::ast::common::ResolveStatus;
 use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
@@ -60,6 +61,44 @@ macro_rules! add_bb {
 struct Context {
     /// 生成当前内容时所在的基本块
     in_block: BasicBlock,
+}
+
+#[derive(Debug, Clone)]
+struct NameGenerator {
+    used_names: HashMap<String, usize>,
+}
+
+impl NameGenerator {
+    fn new() -> Self {
+        Self {
+            used_names: HashMap::new(),
+        }
+    }
+
+    fn generate(&mut self, name: &str) -> String {
+        self.used_names
+            .entry(name.to_owned())
+            .and_modify(|count| *count = *count + 1)
+            .or_insert(0);
+        let count = self.used_names.get(name).unwrap();
+        format!("{}_{}", name, count)
+    }
+}
+
+static NAME_GENERATOR: OnceLock<std::sync::Mutex<NameGenerator>> = OnceLock::new();
+
+fn get_name_generator() -> &'static std::sync::Mutex<NameGenerator> {
+    NAME_GENERATOR.get_or_init(|| {
+        std::sync::Mutex::new(NameGenerator {
+            used_names: HashMap::new(),
+        })
+    })
+}
+
+macro_rules! generate_name {
+    ($name:expr) => {
+        get_name_generator().lock().unwrap().generate($name)
+    };
 }
 
 // 获取基本块的最后一条指令
@@ -124,20 +163,17 @@ impl ProgramBuilder {
                     typemap(&f.return_type),
                 ));
                 let func_data = prog.func_mut(func);
-                let entry_bb = new_bb!(func_data, "%entry");
+                let entry_bb = new_bb!(
+                    func_data,
+                    generate_name!("%entry")
+                );
                 add_bb!(func_data, entry_bb);
 
                 // 生成函数中的语句
                 let mut bb = entry_bb;
                 for stmt in &f.body {
                     bb = self
-                        .build_stmt(
-                            stmt,
-                            func_data,
-                            &Context {
-                                in_block: bb,
-                            },
-                        )?
+                        .build_stmt(stmt, func_data, &Context { in_block: bb })?
                         .in_block;
 
                     // 如果生成的最后一条语句是return语句，则判断后面的语句为不可达，直接跳过
@@ -216,29 +252,24 @@ impl ProgramBuilder {
             }
             Statement::If(guard, then_br, else_br) => {
                 // 生成并添加guard块
-                let guard_bb = new_bb!(func_data, "%guard");
+                let guard_bb = new_bb!(func_data, generate_name!("%guard"));
                 add_bb!(func_data, guard_bb);
                 // 在当前位置添加跳转到guard块的br指令
                 let jump_to_guard = new_instr!(func_data).jump(guard_bb);
                 add_instr!(func_data, ctx.in_block, jump_to_guard);
 
                 // 生成并添加merge块
-                let merge_bb = new_bb!(func_data, "%merge");
+                let merge_bb = new_bb!(func_data, generate_name!("%merge"));
                 add_bb!(func_data, merge_bb);
                 // 负责跳转到merge块的指令
                 let jump_to_merge = new_instr!(func_data).jump(merge_bb);
 
                 // 生成then块
-                let then_bb = new_bb!(func_data, "%then");
+                let then_bb = new_bb!(func_data, generate_name!("%then"));
                 add_bb!(func_data, then_bb);
                 // 生成完then块后的ctx
-                let then_ctx = self.build_stmt(
-                    then_br.as_ref(),
-                    func_data,
-                    &Context {
-                        in_block: then_bb,
-                    },
-                )?;
+                let then_ctx =
+                    self.build_stmt(then_br.as_ref(), func_data, &Context { in_block: then_bb })?;
                 // 若完成指令生成后，最后一个指令不存在/不为跳转指令，则将jump_to_merge指令加入
                 let then_bb_last_instr = last_instr(func_data, then_ctx.in_block);
                 if then_bb_last_instr.is_none() || !Self::is_jump(then_bb_last_instr.unwrap()) {
@@ -249,14 +280,12 @@ impl ProgramBuilder {
                 let else_bb = match else_br {
                     Some(else_br) => {
                         // 在else块里生成指令
-                        let else_bb = new_bb!(func_data, "%else");
+                        let else_bb = new_bb!(func_data, generate_name!("%else"));
                         add_bb!(func_data, else_bb);
                         let else_ctx = self.build_stmt(
                             else_br.as_ref(),
                             func_data,
-                            &Context {
-                                in_block: else_bb,
-                            },
+                            &Context { in_block: else_bb },
                         )?;
 
                         // 若完成指令生成后，最后一个指令不存在/不为跳转指令，则将jump_to_merge指令加入
@@ -275,22 +304,15 @@ impl ProgramBuilder {
                 // 生成guard及跳转代码
                 // TODO: 实现短路求值
                 // self.handle_short_circuit_evaluation(guard, func_data, bb, then_bb, else_bb)?;
-                let guard_ir = self.build_expr(
-                    guard,
-                    func_data,
-                    &Context {
-                        in_block: guard_bb,
-                    },
-                )?;
+                let guard_ir =
+                    self.build_expr(guard, func_data, &Context { in_block: guard_bb })?;
                 let branch_ir = match else_bb {
                     Some(else_bb) => new_instr!(func_data).branch(guard_ir, then_bb, else_bb),
                     None => new_instr!(func_data).branch(guard_ir, then_bb, merge_bb),
                 };
                 add_instr!(func_data, guard_bb, branch_ir);
 
-                Ok(Context {
-                    in_block: merge_bb,
-                })
+                Ok(Context { in_block: merge_bb })
             }
         }
     }

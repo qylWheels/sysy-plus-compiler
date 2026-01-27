@@ -146,6 +146,12 @@ impl RegAllocator {
                                 .or_insert(pos..usize::MAX);
                         }
                     }
+                    ValueKind::Jump(_) => {
+                        // void
+                    }
+                    ValueKind::Branch(_) => {
+                        // void
+                    }
                     _ => unimplemented!("{:?}", value_data.kind()),
                 }
                 pos += 1;
