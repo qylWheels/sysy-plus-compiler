@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::OnceLock;
 
@@ -89,9 +89,7 @@ static NAME_GENERATOR: OnceLock<std::sync::Mutex<NameGenerator>> = OnceLock::new
 
 fn get_name_generator() -> &'static std::sync::Mutex<NameGenerator> {
     NAME_GENERATOR.get_or_init(|| {
-        std::sync::Mutex::new(NameGenerator {
-            used_names: HashMap::new(),
-        })
+        std::sync::Mutex::new(NameGenerator::new())
     })
 }
 
@@ -163,10 +161,7 @@ impl ProgramBuilder {
                     typemap(&f.return_type),
                 ));
                 let func_data = prog.func_mut(func);
-                let entry_bb = new_bb!(
-                    func_data,
-                    generate_name!("%entry")
-                );
+                let entry_bb = new_bb!(func_data, generate_name!("%entry"));
                 add_bb!(func_data, entry_bb);
 
                 // 生成函数中的语句
