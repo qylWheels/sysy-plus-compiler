@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use crate::{
     parser::ast::{
         common::ResolveStatus,
@@ -10,6 +12,9 @@ use crate::{
 };
 use thiserror::Error;
 
+/// 记录当前while的深度，用于判断break和continue是否在while里
+static WHILE_DEPTH_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Debug, Error)]
 pub enum SemanticError {
     #[error("{0:?} is not a constant expression")]
@@ -20,6 +25,12 @@ pub enum SemanticError {
 
     #[error("unresolved symbol: {0}")]
     UnresolvedSymbol(String),
+
+    #[error("\"break\" is not in while statement")]
+    BreakError,
+
+    #[error("\"continue\" is not in while statement")]
+    ContinueError,
 
     #[error("symbol table error: {0}")]
     SymbolTableError(#[from] SymbolTableError),
@@ -163,9 +174,27 @@ impl SemanticChecker {
                     None => (),
                 }
             }
-            Statement::While(expression, statement) => todo!(),
-            Statement::Break => todo!(),
-            Statement::Continue => todo!(),
+            Statement::While(guard, stmt) => {
+                // 检查条件
+                self.check_expression(guard)?;
+
+                // 检查内部语句
+                self.symtable = self.symtable.enter_scope();
+                WHILE_DEPTH_COUNTER.fetch_add(1, Ordering::Relaxed); // 进入内部，深度加1
+                self.check_statement(stmt)?;
+                WHILE_DEPTH_COUNTER.fetch_sub(1, Ordering::Relaxed); // 退回外部，深度减1
+                self.symtable = self.symtable.exit_scope()?;
+            }
+            Statement::Break => {
+                if WHILE_DEPTH_COUNTER.load(Ordering::Relaxed) == 0 {
+                    return Err(SemanticError::BreakError);
+                }
+            }
+            Statement::Continue => {
+                if WHILE_DEPTH_COUNTER.load(Ordering::Relaxed) == 0 {
+                    return Err(SemanticError::ContinueError);
+                }
+            }
         }
 
         Ok(())
