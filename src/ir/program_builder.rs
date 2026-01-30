@@ -309,6 +309,9 @@ impl ProgramBuilder {
 
                 Ok(Context { in_block: merge_bb })
             }
+            Statement::While(expression, statement) => todo!(),
+            Statement::Break => todo!(),
+            Statement::Continue => todo!(),
         }
     }
 

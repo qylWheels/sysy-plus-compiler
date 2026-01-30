@@ -12,5 +12,11 @@ pub enum Statement {
     Block(Vec<Box<Statement>>),
 
     /// 条件, then分支, else分支
-    If(Expression, Box<Statement>, Option<Box<Statement>>)
+    If(Expression, Box<Statement>, Option<Box<Statement>>),
+
+    /// 条件，语句
+    While(Expression, Box<Statement>),
+
+    Break,
+    Continue,
 }

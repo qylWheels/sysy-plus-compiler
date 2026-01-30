@@ -163,6 +163,9 @@ impl SemanticChecker {
                     None => (),
                 }
             }
+            Statement::While(expression, statement) => todo!(),
+            Statement::Break => todo!(),
+            Statement::Continue => todo!(),
         }
 
         Ok(())
