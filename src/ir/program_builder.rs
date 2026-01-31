@@ -61,6 +61,12 @@ macro_rules! add_bb {
 struct Context {
     /// 生成当前内容时所在的基本块
     in_block: BasicBlock,
+
+    /// 当前所在的while的开头，即该while的guard块
+    while_begin: Option<BasicBlock>,
+
+    /// 当前所在的while结束后的第一个基本块
+    while_end: Option<BasicBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,9 +94,7 @@ impl NameGenerator {
 static NAME_GENERATOR: OnceLock<std::sync::Mutex<NameGenerator>> = OnceLock::new();
 
 fn get_name_generator() -> &'static std::sync::Mutex<NameGenerator> {
-    NAME_GENERATOR.get_or_init(|| {
-        std::sync::Mutex::new(NameGenerator::new())
-    })
+    NAME_GENERATOR.get_or_init(|| std::sync::Mutex::new(NameGenerator::new()))
 }
 
 macro_rules! generate_name {
@@ -168,7 +172,15 @@ impl ProgramBuilder {
                 let mut bb = entry_bb;
                 for stmt in &f.body {
                     bb = self
-                        .build_stmt(stmt, func_data, &Context { in_block: bb })?
+                        .build_stmt(
+                            stmt,
+                            func_data,
+                            &Context {
+                                in_block: bb,
+                                while_begin: None,
+                                while_end: None,
+                            },
+                        )?
                         .in_block;
 
                     // 如果生成的最后一条语句是return语句，则判断后面的语句为不可达，直接跳过
@@ -263,8 +275,14 @@ impl ProgramBuilder {
                 let then_bb = new_bb!(func_data, generate_name!("%then"));
                 add_bb!(func_data, then_bb);
                 // 生成完then块后的ctx
-                let then_ctx =
-                    self.build_stmt(then_br.as_ref(), func_data, &Context { in_block: then_bb })?;
+                let then_ctx = self.build_stmt(
+                    then_br.as_ref(),
+                    func_data,
+                    &Context {
+                        in_block: then_bb,
+                        ..ctx.clone()
+                    },
+                )?;
                 // 若完成指令生成后，最后一个指令不存在/不为跳转指令，则将jump_to_merge指令加入
                 let then_bb_last_instr = last_instr(func_data, then_ctx.in_block);
                 if then_bb_last_instr.is_none() || !Self::is_jump(then_bb_last_instr.unwrap()) {
@@ -280,7 +298,10 @@ impl ProgramBuilder {
                         let else_ctx = self.build_stmt(
                             else_br.as_ref(),
                             func_data,
-                            &Context { in_block: else_bb },
+                            &Context {
+                                in_block: else_bb,
+                                ..ctx.clone()
+                            },
                         )?;
 
                         // 若完成指令生成后，最后一个指令不存在/不为跳转指令，则将jump_to_merge指令加入
@@ -299,19 +320,102 @@ impl ProgramBuilder {
                 // 生成guard及跳转代码
                 // TODO: 实现短路求值
                 // self.handle_short_circuit_evaluation(guard, func_data, bb, then_bb, else_bb)?;
-                let guard_ir =
-                    self.build_expr(guard, func_data, &Context { in_block: guard_bb })?;
+                let guard_ir = self.build_expr(
+                    guard,
+                    func_data,
+                    &Context {
+                        in_block: guard_bb,
+                        ..ctx.clone()
+                    },
+                )?;
                 let branch_ir = match else_bb {
                     Some(else_bb) => new_instr!(func_data).branch(guard_ir, then_bb, else_bb),
                     None => new_instr!(func_data).branch(guard_ir, then_bb, merge_bb),
                 };
                 add_instr!(func_data, guard_bb, branch_ir);
 
-                Ok(Context { in_block: merge_bb })
+                Ok(Context {
+                    in_block: merge_bb,
+                    while_begin: None,
+                    while_end: None,
+                })
             }
-            Statement::While(expression, statement) => todo!(),
-            Statement::Break => todo!(),
-            Statement::Continue => todo!(),
+            Statement::While(expr, stmt) => {
+                let guard_bb = new_bb!(func_data, generate_name!("%while_guard"));
+                let body_bb = new_bb!(func_data, generate_name!("%while_body"));
+                let end_bb = new_bb!(func_data, generate_name!("%while_end"));
+                let (old_while_begin, old_while_end) = (ctx.while_begin, ctx.while_end);
+
+                // 将与while有关的块加入
+                add_bb!(func_data, guard_bb);
+                add_bb!(func_data, body_bb);
+                add_bb!(func_data, end_bb);
+
+                // 在当前块生成跳转到guard块的指令
+                let jump_to_guard = new_instr!(func_data).jump(guard_bb);
+                add_instr!(func_data, ctx.in_block, jump_to_guard);
+
+                // 生成guard块中的代码
+                let guard = self.build_expr(
+                    expr,
+                    func_data,
+                    &Context {
+                        in_block: guard_bb,
+                        ..ctx.clone()
+                    },
+                )?;
+                let branch = new_instr!(func_data).branch(guard, body_bb, end_bb);
+                add_instr!(func_data, guard_bb, branch);
+
+                // 生成body块中的代码
+                let ctx_after_gen_body = self.build_stmt(
+                    stmt,
+                    func_data,
+                    &Context {
+                        in_block: body_bb,
+                        while_begin: Some(guard_bb),
+                        while_end: Some(end_bb),
+                    },
+                )?;
+                // 如果body块（或其返回的ctx中的in_block）的最后一行为空（如空块语句{}）/不是跳转指令（如ret），
+                // 则生成jump %while_guard指令
+                let body_bb_last_instr = last_instr(func_data, ctx_after_gen_body.in_block);
+                if body_bb_last_instr.is_none() || !Self::is_jump(body_bb_last_instr.unwrap()) {
+                    add_instr!(func_data, ctx_after_gen_body.in_block, jump_to_guard);
+                }
+
+                Ok(Context {
+                    in_block: end_bb,
+                    while_begin: old_while_begin,
+                    while_end: old_while_end,
+                })
+            }
+            Statement::Break => {
+                let jump_to_end = new_instr!(func_data).jump(ctx.while_end.unwrap());
+                add_instr!(func_data, ctx.in_block, jump_to_end);
+
+                // 为break的后续指令创建新块（虽然unreachable，但还是要创建）
+                let after_break_bb = new_bb!(func_data, generate_name!("%after_break"));
+                add_bb!(func_data, after_break_bb);
+
+                Ok(Context {
+                    in_block: after_break_bb,
+                    ..ctx.clone()
+                })
+            }
+            Statement::Continue => {
+                let jump_to_begin = new_instr!(func_data).jump(ctx.while_begin.unwrap());
+                add_instr!(func_data, ctx.in_block, jump_to_begin);
+
+                // 为continue后续指令创建新块（虽然unreachable，但还是要创建）
+                let after_continue_bb = new_bb!(func_data, generate_name!("%after_continue"));
+                add_bb!(func_data, after_continue_bb);
+
+                Ok(Context {
+                    in_block: after_continue_bb,
+                    ..ctx.clone()
+                })
+            }
         }
     }
 

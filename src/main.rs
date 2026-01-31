@@ -34,7 +34,7 @@ fn main() {
     // 语义检查
     let mut checker = SemanticChecker::new();
     checker.check(&compunit).unwrap();
-    dbg!("checked!");
+    // dbg!("checked!");
 
     // IR/目标代码生成
     let program = program_builder::ProgramBuilder::new(compunit)
