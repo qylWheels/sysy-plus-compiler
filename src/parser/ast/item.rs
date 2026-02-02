@@ -10,5 +10,6 @@ pub enum Item {
 pub struct FuncDef {
     pub(crate) return_type: Type,
     pub(crate) ident: Identifier,
+    pub(crate) fparams: Vec<(Type, Identifier)>,
     pub(crate) body: Vec<Statement>,
 }

@@ -7,6 +7,7 @@ use crate::semantic::symbol_table::SymbolInfo;
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
+    Void,
     Simple(String),
 }
 

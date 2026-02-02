@@ -250,6 +250,7 @@ impl SemanticChecker {
                     || Self::i32_to_bool(self.eval_const_val(&rhs)?))
                 .into()),
             },
+            Expression::Call(identifier, expressions) => todo!(),
         }
     }
 
@@ -271,6 +272,7 @@ impl SemanticChecker {
                 self.check_expression(&rhs)?;
                 Ok(())
             }
+            Expression::Call(identifier, expressions) => todo!(),
         }
     }
 

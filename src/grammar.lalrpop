@@ -13,23 +13,60 @@ match {
 }
 
 pub CompileUnit: compile_unit::CompileUnit = {
-    <FuncDef> => compile_unit::CompileUnit {
-        items: vec![<>],
-    },
+    //<FuncDef> => compile_unit::CompileUnit {
+    //    items: vec![<>],
+    //},
+    <first:FuncDef> <rest:(<FuncDef>)*> => {
+        let mut v = vec![first];
+        v.extend(rest);
+        compile_unit::CompileUnit {
+            items: v,
+        }
+    }
 }
 
 FuncDef: item::Item = {
-    <frt:FuncRetType> <id:Identifier> "(" ")" <b:Block> => {
+    <frt:FuncRetType> <id:Identifier> "(" <fp:FuncFParams> ")" <b:Block> => {
         item::Item::FuncDef(item::FuncDef {
             return_type: frt,
             ident: id,
+            fparams: fp,
             body: b,
         })
     }
 }
 
 FuncRetType: common::Type = {
-    "int" => common::Type::Simple("int".to_string()),
+    <Type> => <>,
+    "void" => common::Type::Void,
+}
+
+// formal parameters of function
+FuncFParams: Vec<(common::Type, common::Identifier)> = {
+    /* empty */ => vec![],
+    <first:FuncFParam> <rest:("," <FuncFParam>)*> => {
+        let mut v = vec![first];
+        v.extend(rest);
+        v
+    }
+}
+
+FuncFParam: (common::Type, common::Identifier) = {
+    <ty:Type> <id:Identifier> => (ty, id)
+}
+
+// real parameters of function
+FuncRParams: Vec<expression::Expression> = {
+    /* empty */ => vec![],
+    <first:FuncRParam> <rest:("," <FuncRParam>)*> => {
+        let mut v = vec![first];
+        v.extend(rest);
+        v
+    }
+}
+
+FuncRParam: expression::Expression = {
+    <e:Expression> => <>
 }
 
 Block: Vec<statement::Statement> = {
@@ -164,6 +201,7 @@ UnaryExpression: expression::Expression = {
     "+" <UnaryExpression> => expression::Expression::Unary(expression::UnaryOp::Plus, Box::new(<>)),
     "-" <UnaryExpression> => expression::Expression::Unary(expression::UnaryOp::Minus, Box::new(<>)),
     "!" <UnaryExpression> => expression::Expression::Unary(expression::UnaryOp::LogicalNot, Box::new(<>)),
+    <id:Identifier> "(" <frp:FuncRParams> ")" => expression::Expression::Call(id, frp),
 }
 
 PrimaryExpression: expression::Expression = {

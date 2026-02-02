@@ -7,6 +7,7 @@ pub enum Expression {
     Ident(Identifier),
     Unary(UnaryOp, Box<Expression>),
     Binary(Box<Expression>, BinaryOp, Box<Expression>),
+    Call(Identifier, Vec<Expression>),
 }
 
 #[non_exhaustive]
