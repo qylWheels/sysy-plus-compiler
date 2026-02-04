@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::{
     parser::ast::{
-        common::ResolveStatus,
+        common::{ResolveStatus, Type},
         compile_unit::CompileUnit,
         expression::{BinaryOp, Expression, UnaryOp},
         item::Item,
@@ -59,9 +59,33 @@ impl SemanticChecker {
     fn check_item(&mut self, item: &Item) -> Result<(), SemanticError> {
         match item {
             Item::FuncDef(f) => {
+                // 对函数名称进行检查
+                let id = f.ident.name.clone();
+                // FIXME: 这里先用一个占位的SymbolInfo哄类型检查器，后续可能要斟酌其字段该如何设置
+                self.symtable.add_symbol(
+                    id,
+                    SymbolInfo {
+                        qualifier: Qualifier::Const,
+                        ty: Type::Void,
+                        const_val: None,
+                    },
+                )?;
+
                 // 创建子作用域
                 let new_scope = self.symtable.enter_scope();
                 self.symtable = new_scope;
+
+                // 对函数形参进行检查
+                for (ty, id) in &f.fparams {
+                    self.symtable.add_symbol(
+                        id.name.clone(),
+                        SymbolInfo {
+                            qualifier: Qualifier::Var,
+                            ty: ty.clone(),
+                            const_val: None,
+                        },
+                    )?;
+                }
 
                 // 对函数体内部语句进行语义检查
                 for stmt in &f.body {

@@ -63,6 +63,9 @@ impl SymbolTable {
     }
 
     /// 从当前层级到顶级，依次查找符号表中的符号
+    /// TODO: 这样的作用域管理模式不好，违反单一职责原则。应该由symtable自己管理作用域。
+    /// 考虑提供一个with_scope()，其接收一个闭包，使得闭包内的操作在子作用域中完成。
+    /// 完成后自动返回父作用域。
     pub(crate) fn find_symbol(&self, id: &String) -> Result<SymbolInfo, SymbolTableError> {
         match self.inner.borrow().map.get(id) {
             Some(info) => Ok(info.clone()),
@@ -80,6 +83,7 @@ impl SymbolTable {
     }
 
     /// 进入新的子作用域
+    #[deprecated(note = "Use \"with_scope()\" instead")]
     pub(crate) fn enter_scope(&self) -> SymbolTable {
         let child = Self::new();
         child.set_parent(&self);
@@ -96,6 +100,7 @@ impl SymbolTable {
 
     /// 退出作用域，返回到父作用域
     /// invariant: 自身必须有父作用域，否则返回错误
+    #[deprecated(note = "Use \"with_scope()\" instead")]
     pub(crate) fn exit_scope(&self) -> Result<SymbolTable, SymbolTableError> {
         match self.inner.borrow().parent.as_ref() {
             Some(parent) => Ok(SymbolTable {
