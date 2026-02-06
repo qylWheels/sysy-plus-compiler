@@ -32,6 +32,12 @@ pub enum SemanticError {
     #[error("\"continue\" is not in while statement")]
     ContinueError,
 
+    #[error("expected {0} arguments, found {1}")]
+    ArgumentCountError(usize, usize),
+
+    #[error("expected type \"{0:?}\", found \"{1:?}\"")]
+    TypeError(Type, Type),
+
     #[error("symbol table error: {0}")]
     SymbolTableError(#[from] SymbolTableError),
 }
@@ -59,32 +65,34 @@ impl SemanticChecker {
     fn check_item(&mut self, item: &Item) -> Result<(), SemanticError> {
         match item {
             Item::FuncDef(f) => {
-                // 对函数名称进行检查
+                // 对函数名称进行检查并将id对应的信息写入ast
                 let id = f.ident.name.clone();
-                // FIXME: 这里先用一个占位的SymbolInfo哄类型检查器，后续可能要斟酌其字段该如何设置
-                self.symtable.add_symbol(
-                    id,
-                    SymbolInfo {
-                        qualifier: Qualifier::Const,
-                        ty: Type::Void,
-                        const_val: None,
-                    },
-                )?;
+                let params_types = f
+                    .fparams
+                    .iter()
+                    .map(|(ty, _)| Box::new(ty.clone()))
+                    .collect::<Vec<_>>();
+                let syminfo = SymbolInfo {
+                    qualifier: Qualifier::Const, // TODO: 斟酌此字段的内容
+                    ty: Type::Function(params_types, Box::new(f.return_type.clone())),
+                    const_val: None,
+                };
+                self.symtable.add_symbol(id, syminfo.clone())?;
+                *f.ident.resolve_status.borrow_mut() = ResolveStatus::Resolved(syminfo.clone());
 
                 // 创建子作用域
                 let new_scope = self.symtable.enter_scope();
                 self.symtable = new_scope;
 
-                // 对函数形参进行检查
+                // 对函数形参进行检查并将信息写入ast
                 for (ty, id) in &f.fparams {
-                    self.symtable.add_symbol(
-                        id.name.clone(),
-                        SymbolInfo {
-                            qualifier: Qualifier::Var,
-                            ty: ty.clone(),
-                            const_val: None,
-                        },
-                    )?;
+                    let syminfo = SymbolInfo {
+                        qualifier: Qualifier::Var,
+                        ty: ty.clone(),
+                        const_val: None,
+                    };
+                    self.symtable.add_symbol(id.name.clone(), syminfo.clone())?;
+                    *id.resolve_status.borrow_mut() = ResolveStatus::Resolved(syminfo.clone());
                 }
 
                 // 对函数体内部语句进行语义检查
@@ -141,7 +149,9 @@ impl SemanticChecker {
                     };
 
                     // 将id对应的作用域信息写入ast
+                    // dbg!(id);
                     *id.resolve_status.borrow_mut() = ResolveStatus::Resolved(syminfo.clone());
+                    // dbg!(id);
 
                     // 将id对应的作用域信息写入符号表
                     self.symtable.add_symbol(id.name.clone(), syminfo.clone())?;
@@ -274,7 +284,7 @@ impl SemanticChecker {
                     || Self::i32_to_bool(self.eval_const_val(&rhs)?))
                 .into()),
             },
-            Expression::Call(identifier, expressions) => todo!(),
+            Expression::Call(_id, _expr) => unreachable!(),
         }
     }
 
@@ -296,7 +306,30 @@ impl SemanticChecker {
                 self.check_expression(&rhs)?;
                 Ok(())
             }
-            Expression::Call(identifier, expressions) => todo!(),
+            Expression::Call(id, exprs) => {
+                // 检查调用的函数是否存在
+                let syminfo = self.symtable.find_symbol(&id.name)?;
+
+                // 检查实参个数是否等于形参个数
+                match syminfo.ty {
+                    Type::Function(params, _ret) => {
+                        if exprs.len() != params.len() {
+                            return Err(SemanticError::ArgumentCountError(
+                                params.len(),
+                                exprs.len(),
+                            ));
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+
+                // 检查参数类型
+                for expr in exprs{
+                    self.check_expression(expr)?;
+                }
+
+                Ok(())
+            }
         }
     }
 

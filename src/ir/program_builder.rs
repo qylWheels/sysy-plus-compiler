@@ -9,9 +9,10 @@ use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
 use crate::semantic::symbol_table::{SymbolInfoError, SymbolTableError};
 use crate::{ir::typemap::typemap, parser::ast::compile_unit::CompileUnit};
+use koopa::front::ast::FunCall;
 use koopa::ir::builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::entities::ValueData;
-use koopa::ir::{BasicBlock, FunctionData, Program, Type, Value, ValueKind};
+use koopa::ir::{BasicBlock, Function, FunctionData, Program, Type, Value, ValueKind};
 use thiserror::Error;
 
 macro_rules! new_value {
@@ -154,19 +155,43 @@ impl ProgramBuilder {
     fn build_item(&mut self, prog: &mut Program, item: &Item) -> Result<(), ProgramBuilderError> {
         match item {
             Item::FuncDef(f) => {
+                // 创建函数框架
+                let func = prog.new_func(FunctionData::new(
+                    format!("@{}", f.ident.name),
+                    f.fparams.iter().map(|(ty, _)| typemap(ty)).collect(),
+                    typemap(&f.return_type),
+                ));
+                let func_data = prog.func_mut(func);
+                // dbg!(func_data.params());
+                let entry_bb = new_bb!(func_data, generate_name!("%entry"));
+                add_bb!(func_data, entry_bb);
+
+                // 把函数加入symbol_value_map
+                self.symbol_value_map
+                    .add_function(f.ident.name.clone(), func);
+
                 // 进入子作用域
                 let new_scope = self.symbol_value_map.enter_scope();
                 self.symbol_value_map = new_scope;
 
-                // 创建函数框架
-                let func = prog.new_func(FunctionData::new(
-                    format!("@{}", f.ident.name),
-                    vec![],
-                    typemap(&f.return_type),
-                ));
-                let func_data = prog.func_mut(func);
-                let entry_bb = new_bb!(func_data, generate_name!("%entry"));
-                add_bb!(func_data, entry_bb);
+                // 在函数体中为参数分配空间，并将ident绑定到分配的空间
+                let (params_types, params_names) =
+                    f.fparams
+                        .iter()
+                        .fold((Vec::new(), Vec::new()), |mut acc, (ty, id)| {
+                            acc.0.push(ty);
+                            acc.1.push(id);
+                            (acc.0, acc.1)
+                        });
+                let params_values = func_data.params().to_vec();
+                for i in 0..params_names.len() {
+                    let alloc = new_instr!(func_data).alloc(typemap(params_types[i]));
+                    add_instr!(func_data, entry_bb, alloc);
+                    let store = new_instr!(func_data).store(params_values[i], alloc);
+                    add_instr!(func_data, entry_bb, store);
+                    self.symbol_value_map
+                        .add_value(params_names[i].name.clone(), alloc);
+                }
 
                 // 生成函数中的语句
                 let mut bb = entry_bb;
@@ -190,6 +215,13 @@ impl ProgramBuilder {
                     {
                         break;
                     }
+                }
+
+                // 如果最后一条语句不存在（即函数为空），则添加一条返回语句
+                let last_instr = last_instr(func_data, bb);
+                if last_instr.is_none() {
+                    let ret = new_instr!(func_data).ret(None);
+                    add_instr!(func_data, bb, ret);
                 }
 
                 // 返回父作用域
@@ -220,7 +252,7 @@ impl ProgramBuilder {
                 for (_, id, expr_opt) in v {
                     let alloc = new_value!(func_data).alloc(Type::get_i32());
                     add_instr!(func_data, ctx.in_block, alloc);
-                    self.symbol_value_map.add_symbol(id.name.clone(), alloc);
+                    self.symbol_value_map.add_value(id.name.clone(), alloc);
                     if let Some(expr) = expr_opt {
                         let val = self.build_expr(expr, func_data, ctx)?;
                         let store = new_value!(func_data).store(val, alloc);
@@ -230,7 +262,7 @@ impl ProgramBuilder {
                 Ok(ctx.clone())
             }
             Statement::Assign(lval, expr) => {
-                let lval = self.symbol_value_map.find_symbol(&lval.name);
+                let lval = self.symbol_value_map.find_value(&lval.name);
                 let value = self.build_expr(expr, func_data, ctx)?;
                 let instr = new_instr!(func_data).store(value, lval);
                 add_instr!(func_data, ctx.in_block, instr);
@@ -468,7 +500,10 @@ impl ProgramBuilder {
             Expression::Ident(id) => {
                 let syminfo = match &*id.resolve_status.borrow() {
                     ResolveStatus::Resolved(syminfo) => syminfo.clone(),
-                    ResolveStatus::Unresolved => unreachable!(),
+                    ResolveStatus::Unresolved => {
+                        dbg!(id);
+                        unreachable!()
+                    },
                 };
                 match syminfo.is_const_val() {
                     true => {
@@ -476,7 +511,7 @@ impl ProgramBuilder {
                         Ok(new_value!(func_data).integer(val))
                     }
                     false => {
-                        let value = self.symbol_value_map.find_symbol(&id.name);
+                        let value = self.symbol_value_map.find_value(&id.name);
                         let instr = new_instr!(func_data).load(value);
                         add_instr!(func_data, ctx.in_block, instr);
                         Ok(instr)
@@ -639,7 +674,20 @@ impl ProgramBuilder {
                     }
                 }
             }
-            Expression::Call(identifier, expressions) => todo!(),
+            Expression::Call(identifier, expressions) => {
+                // dbg!(&identifier.name);
+                // dbg!(&self.symbol_value_map);
+                let callee = self.symbol_value_map.find_function(&identifier.name);
+                let args: Result<Vec<Value>, ProgramBuilderError> = expressions
+                    .iter()
+                    .map(|e| self.build_expr(e, func_data, ctx))
+                    .collect();
+                let args = args?;
+                let call = new_instr!(func_data).call(callee, args);
+                add_instr!(func_data, ctx.in_block, call);
+
+                Ok(call)
+            }
         }
     }
 }
@@ -654,6 +702,7 @@ pub enum SymbolValueMapError {
 struct SymbolValueMap {
     parent: Option<Rc<RefCell<Self>>>,
     map: HashMap<String, Value>,
+    func_map: HashMap<String, Function>,
 }
 
 impl SymbolValueMap {
@@ -661,20 +710,37 @@ impl SymbolValueMap {
         Self {
             parent: None,
             map: HashMap::new(),
+            func_map: HashMap::new(),
         }
     }
 
     /// 往当前层级添加ident-value映射
-    fn add_symbol(&mut self, id: String, value: Value) {
+    fn add_value(&mut self, id: String, value: Value) {
         self.map.insert(id, value);
     }
 
     /// 从当前层级逐级往上查找ident
-    fn find_symbol(&self, id: &str) -> Value {
+    fn find_value(&self, id: &str) -> Value {
         match self.map.get(id) {
             Some(val) => *val,
             None => match &self.parent {
-                Some(parent) => (*parent).borrow().find_symbol(id),
+                Some(parent) => (*parent).borrow().find_value(id),
+                None => unreachable!(),
+            },
+        }
+    }
+
+    /// 往当前层级添加ident-function映射
+    fn add_function(&mut self, id: String, func: Function) {
+        self.func_map.insert(id, func);
+    }
+
+    /// 从当前层级逐级往上查找ident
+    fn find_function(&self, id: &str) -> Function {
+        match self.func_map.get(id) {
+            Some(func) => *func,
+            None => match &self.parent {
+                Some(parent) => (*parent).borrow().find_function(id),
                 None => unreachable!(),
             },
         }
