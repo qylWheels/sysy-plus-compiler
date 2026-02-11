@@ -43,14 +43,7 @@ fn main() {
     match cli.target.as_ref() {
         "-koopa" => irgen::irgen(&program, o),
         "-riscv" => {
-            let _ = program.generate(
-                &mut o,
-                Context {
-                    func: None,
-                    indent: 0,
-                    alloc_result: None,
-                },
-            );
+            let _ = program.generate(&mut o, Context::new());
         }
         _ => unimplemented!(),
     }

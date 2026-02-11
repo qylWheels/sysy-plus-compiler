@@ -84,6 +84,7 @@ impl RegAllocator {
         }
     }
 
+    /// 线性扫描变量的活动范围
     fn scan(&mut self, func_data: &FunctionData) {
         let mut map: HashMap<Value, Range<usize>> = HashMap::new();
         let mut pos = 0;
@@ -123,7 +124,7 @@ impl RegAllocator {
                         }
                     }
                     ValueKind::Alloc(_) => {
-                        // void
+                        // FIXME: alloc指令所涉及的值也应该纳入活跃区间
                     }
                     ValueKind::Store(s) => {
                         let (value, dest) = (s.value(), s.dest());
@@ -150,7 +151,17 @@ impl RegAllocator {
                         // void
                     }
                     ValueKind::Branch(_) => {
-                        // void
+                        // FIXME: branch指令所涉及的值也应该纳入活跃区间
+                    }
+                    ValueKind::Call(c) => {
+                        let args = c.args();
+                        for arg in args {
+                            if Self::need_alloc(func_data.dfg().value(*arg)) {
+                                map.entry(*arg)
+                                    .and_modify(|r| r.end = pos)
+                                    .or_insert(pos..usize::MAX);
+                            }
+                        }
                     }
                     _ => unimplemented!("{:?}", value_data.kind()),
                 }
@@ -205,6 +216,7 @@ impl RegAllocator {
         }
     }
 
+    /// 判断是否需要为value分配栈空间
     fn need_alloc(value_data: &ValueData) -> bool {
         let kind = value_data.kind();
         match kind {

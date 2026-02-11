@@ -1,16 +1,30 @@
 use std::io;
 
 use koopa::ir::*;
+use strum::IntoEnumIterator;
 
-use crate::target::riscv::reg_alloc::AllocResult;
-use crate::target::riscv::reg_alloc::{Allocation, RegAllocator};
+use crate::target::riscv::reg_alloc::{
+    pure_memory::PureMemoryAllocator, AllocResult, Allocation, RegAllocator, Register,
+};
 
 const INDENT_SIZE: usize = 2;
 #[derive(Clone)]
 pub struct Context<'a> {
-    pub func: Option<&'a FunctionData>,
-    pub indent: usize,
-    pub alloc_result: Option<AllocResult<'a>>,
+    prog: Option<&'a Program>,
+    func: Option<&'a FunctionData>,
+    indent: usize,
+    alloc_result: Option<AllocResult>, // TODO: 将AllocResult改为引用
+}
+
+impl<'a> Context<'a> {
+    pub fn new() -> Self {
+        Self {
+            prog: None,
+            func: None,
+            indent: 0,
+            alloc_result: None,
+        }
+    }
 }
 
 /// 有些ir指令不会直接对应一条riscv指令（如Integer），这时通过该枚举将其返回，让其组成其它指令的部分
@@ -77,10 +91,15 @@ pub trait GenerateRiscv {
 
 impl GenerateRiscv for Program {
     fn generate(&self, dest: &mut impl io::Write, ctx: Context) -> ResultValue {
-        writeln!(dest, "{}.text", " ".repeat(ctx.indent + INDENT_SIZE)).unwrap();
         for func in self.func_layout() {
             let func_data = self.func(*func);
-            func_data.generate(dest, ctx.clone());
+            func_data.generate(
+                dest,
+                Context {
+                    prog: Some(self),
+                    ..ctx.clone()
+                },
+            );
         }
         ResultValue::None
     }
@@ -89,6 +108,7 @@ impl GenerateRiscv for Program {
 impl GenerateRiscv for FunctionData {
     fn generate(&self, dest: &mut impl io::Write, ctx: Context) -> ResultValue {
         // 生成globl声明
+        writeln!(dest, "{}.text", " ".repeat(ctx.indent + INDENT_SIZE)).unwrap();
         writeln!(
             dest,
             "{}.globl {}",
@@ -107,7 +127,7 @@ impl GenerateRiscv for FunctionData {
         .unwrap();
 
         // 对函数中的局部变量进行寄存器分配
-        let mut reg_allocator = RegAllocator::new();
+        let mut reg_allocator = PureMemoryAllocator::new();
         let alloc_result = reg_allocator.allocate(self);
 
         // 生成prologue
@@ -118,11 +138,20 @@ impl GenerateRiscv for FunctionData {
             alloc_result.stack_size
         )
         .unwrap();
+        if alloc_result.save_ra {
+            writeln!(
+                dest,
+                "{}sw ra, {}(sp)",
+                " ".repeat(ctx.indent + 2),
+                alloc_result.stack_size - 4,
+            )
+            .unwrap();
+        }
 
         // 生成函数内容
         // dbg!(&self.layout().bbs().len());
         for (bb, bbnode) in self.layout().bbs() {
-            // 生成块名（除了entry块）
+            // 生成块名（除了entry块，因为"函数名:"即为块）
             let bbdata = self.dfg().bb(*bb);
             let bbname = bbdata
                 .name()
@@ -131,7 +160,7 @@ impl GenerateRiscv for FunctionData {
                 .chars()
                 .skip(1)
                 .collect::<String>();
-            if bbname != "entry" {
+            if bbname.chars().take(5).collect::<String>() != "entry" {
                 writeln!(dest, "{}:", bbname).unwrap();
             }
 
@@ -143,10 +172,16 @@ impl GenerateRiscv for FunctionData {
                         func: Some(self),
                         indent: ctx.indent + INDENT_SIZE,
                         alloc_result: Some(alloc_result.clone()),
+                        ..ctx.clone()
                     },
                 );
             }
         }
+
+        // XXX: epilogue在碰到ret指令时生成
+
+        // 输出换行
+        writeln!(dest).unwrap();
 
         ResultValue::None
     }
@@ -171,7 +206,9 @@ impl GenerateRiscv for Value {
             ValueKind::Integer(i) => ResultValue::Integer(i.value()),
             ValueKind::Return(r) => {
                 let ret = r.value();
-                let alloc_result = ctx.alloc_result.as_ref().unwrap().clone();
+                let alloc_result = ctx.alloc_result.as_ref().unwrap();
+
+                // 将返回值移入a0
                 match ret {
                     Some(v) => {
                         // let result = v.generate(dest, Context { ..ctx });
@@ -204,6 +241,15 @@ impl GenerateRiscv for Value {
                 }
 
                 // 生成函数epilogue
+                if alloc_result.save_ra {
+                    writeln!(
+                        dest,
+                        "{}lw ra, {}(sp)",
+                        " ".repeat(ctx.indent),
+                        alloc_result.stack_size - 4
+                    )
+                    .unwrap();
+                }
                 writeln!(
                     dest,
                     "{}addi sp, sp, -{}",
@@ -1199,7 +1245,7 @@ impl GenerateRiscv for Value {
                     };
                     writeln!(dest, "{}li a0, {}", " ".repeat(ctx.indent), i,).unwrap();
                 } else {
-                    let value_offset = match ctx
+                    match ctx
                         .alloc_result
                         .as_ref()
                         .unwrap()
@@ -1207,16 +1253,20 @@ impl GenerateRiscv for Value {
                         .get(&value)
                         .unwrap()
                     {
-                        Allocation::Spilled(off) => *off,
-                        _ => unimplemented!(),
+                        Allocation::Spilled(off) => {
+                            writeln!(dest, "{}lw a0, {}(sp)", " ".repeat(ctx.indent), *off)
+                                .unwrap();
+                        }
+                        Allocation::Register(reg) => {
+                            writeln!(
+                                dest,
+                                "{}add a0, {}, zero",
+                                " ".repeat(ctx.indent),
+                                reg.to_string()
+                            )
+                            .unwrap();
+                        }
                     };
-                    writeln!(
-                        dest,
-                        "{}lw a0, {}(sp)",
-                        " ".repeat(ctx.indent),
-                        value_offset,
-                    )
-                    .unwrap();
                 }
 
                 // 生成存储指令
@@ -1281,6 +1331,77 @@ impl GenerateRiscv for Value {
                 writeln!(dest, "{}bnez a0, {}", " ".repeat(ctx.indent), bbname1).unwrap();
                 writeln!(dest, "{}j {}", " ".repeat(ctx.indent), bbname2).unwrap();
                 ResultValue::None
+            }
+            ValueKind::Call(call) => {
+                let prog = ctx.prog.unwrap();
+                let callee = call.callee();
+                let callee_name: String = prog
+                    .func(callee)
+                    .name()
+                    .to_string()
+                    .chars()
+                    .skip(1)
+                    .collect();
+                let args = call.args();
+
+                for (i, arg) in args.iter().enumerate() {
+                    if is_koopa_reg(*arg, ctx.func.unwrap()) {
+                        let arg_alloc = get_allocation!(arg, &ctx);
+                        match arg_alloc {
+                            Allocation::Spilled(offset) => {
+                                if i < 8 {
+                                    writeln!(
+                                        dest,
+                                        "{}lw {}, {}(sp)",
+                                        " ".repeat(ctx.indent),
+                                        Register::iter().nth(i).unwrap().to_string(),
+                                        offset,
+                                    )
+                                    .unwrap();
+                                } else {
+                                    writeln!(
+                                        dest,
+                                        "{}lw t0, {}(sp)",
+                                        " ".repeat(ctx.indent),
+                                        offset,
+                                    )
+                                    .unwrap();
+                                    writeln!(
+                                        dest,
+                                        "{}sw t0, {}(sp)",
+                                        " ".repeat(ctx.indent),
+                                        (i - 8) * 4,
+                                    )
+                                    .unwrap();
+                                }
+                            }
+                            _ => unimplemented!(),
+                        }
+                    } else {
+                        let int = match get_valuedata!(*arg, ctx.func.unwrap()).kind() {
+                            ValueKind::Integer(i) => i.value(),
+                            _ => unreachable!(),
+                        };
+                        if i < 8 {
+                            writeln!(
+                                dest,
+                                "{}li {}, {}",
+                                " ".repeat(ctx.indent),
+                                Register::iter().nth(i).unwrap().to_string(),
+                                int,
+                            )
+                            .unwrap();
+                        } else {
+                            writeln!(dest, "{}li t0, {}", " ".repeat(ctx.indent), int,).unwrap();
+                            writeln!(dest, "{}sw t0, {}(sp)", " ".repeat(ctx.indent), (i - 8) * 4)
+                                .unwrap();
+                        }
+                    }
+                }
+
+                writeln!(dest, "{}call {}", " ".repeat(ctx.indent), callee_name).unwrap();
+
+                ResultValue::KoopaRegister(*self)
             }
             _ => unimplemented!(),
         }
