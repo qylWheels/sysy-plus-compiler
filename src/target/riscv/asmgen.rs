@@ -133,7 +133,7 @@ impl GenerateRiscv for FunctionData {
         // 生成prologue
         writeln!(
             dest,
-            "{}addi sp, sp, {}",
+            "{}addi sp, sp, -{}", // 开辟栈空间应该是减！
             " ".repeat(ctx.indent + 2),
             alloc_result.stack_size
         )
@@ -224,8 +224,10 @@ impl GenerateRiscv for Value {
                                 )
                                 .unwrap(),
                                 Allocation::Spilled(off) => {
+                                    // writeln!(dest, "ret start").unwrap();
                                     writeln!(dest, "{}lw a0, {}(sp)", " ".repeat(ctx.indent), off)
                                         .unwrap();
+                                    // writeln!(dest, "ret end").unwrap();
                                 }
                             };
                         } else {
@@ -252,7 +254,7 @@ impl GenerateRiscv for Value {
                 }
                 writeln!(
                     dest,
-                    "{}addi sp, sp, -{}",
+                    "{}addi sp, sp, {}", // 回收栈空间应该是加！
                     " ".repeat(ctx.indent),
                     alloc_result.stack_size
                 )
@@ -1235,6 +1237,7 @@ impl GenerateRiscv for Value {
                 ResultValue::KoopaRegister(*self)
             }
             ValueKind::Store(s) => {
+                // writeln!(dest, "store start").unwrap();
                 let (value, dest_mem) = (s.value(), s.dest());
 
                 // 生成读取指令
@@ -1288,6 +1291,8 @@ impl GenerateRiscv for Value {
                     dest_mem_offset
                 )
                 .unwrap();
+
+                // writeln!(dest, "store end").unwrap();
 
                 ResultValue::None
             }
@@ -1400,6 +1405,16 @@ impl GenerateRiscv for Value {
                 }
 
                 writeln!(dest, "{}call {}", " ".repeat(ctx.indent), callee_name).unwrap();
+
+                let call_alloc = get_allocation!(self, &ctx);
+                match call_alloc {
+                    Allocation::Spilled(offset) => {
+                        // writeln!(dest, "call start").unwrap();
+                        writeln!(dest, "{}sw a0, {}(sp)", " ".repeat(ctx.indent), offset).unwrap();
+                        // writeln!(dest, "call end").unwrap();
+                    }
+                    _ => unimplemented!(),
+                }
 
                 ResultValue::KoopaRegister(*self)
             }

@@ -44,9 +44,8 @@ impl RegAllocator for PureMemoryAllocator {
         let mut need_allocs = vec![]; // 所有需要分配内存的指令
         let mut calls = vec![]; // call指令
         for (_, node) in func_data.layout().bbs() {
-            for &value in node.insts().keys() { // FIXME: 遍历不到call指令
+            for &value in node.insts().keys() { // FIXME: 遍历不到call指令是因为只对f()函数调用了此函数！
                 let value_data = func_data.dfg().value(value);
-                dbg!(value);
                 match value_data.kind() {
                     ValueKind::Store(_) | ValueKind::Return(_) | ValueKind::Integer(_) => (), // 不需分配
                     ValueKind::Call(call) => {
@@ -95,7 +94,7 @@ impl RegAllocator for PureMemoryAllocator {
         // 2、前八个参数应该对应寄存器。八个之后的参数应该从低地址到高地址存放
         let mut pointer = 0; // 为value分配空间时指向可用空间的下一个内存地址
         pointer += stack_size; // 将pointer置于栈底
-        pointer -= 4; // 为ra预留空间
+        pointer -= if calls.is_empty() { 0 } else { 4 }; // 为ra预留空间
 
         // 为本函数的形参“分配”空间
         // 实际上本函数的形参所占用的空间并不在本函数栈内，而是在寄存器a0~a7（前8个）/caller的栈内（剩余的）
