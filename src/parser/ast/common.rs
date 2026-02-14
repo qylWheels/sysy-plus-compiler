@@ -9,6 +9,7 @@ use crate::semantic::symbol_table::SymbolInfo;
 pub enum Type {
     Void,
     Simple(String),
+    Pointer(Box<Type>),
     Function(Vec<Box<Type>>, Box<Type>),
 }
 

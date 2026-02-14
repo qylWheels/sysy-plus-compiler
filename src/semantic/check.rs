@@ -54,8 +54,97 @@ impl SemanticChecker {
         }
     }
 
-    // 执行语义检查
+    /// 执行语义检查
     pub fn check(&mut self, prog: &CompileUnit) -> Result<(), SemanticError> {
+        // 提前将sysy运行时库的符号加入符号表中
+        let sysy_runtime_lib = [
+            (
+                "getint".to_string(),
+                SymbolInfo {
+                    qualifier: Qualifier::Const,
+                    ty: Type::Function(vec![], Box::new(Type::Simple("int".to_string()))),
+                    const_val: None,
+                },
+            ),
+            (
+                "getch".to_string(),
+                SymbolInfo {
+                    qualifier: Qualifier::Const,
+                    ty: Type::Function(vec![], Box::new(Type::Simple("int".to_string()))),
+                    const_val: None,
+                },
+            ),
+            (
+                "getarray".to_string(),
+                SymbolInfo {
+                    qualifier: Qualifier::Const,
+                    ty: Type::Function(
+                        vec![Box::new(Type::Pointer(Box::new(Type::Simple(
+                            "int".to_string(),
+                        ))))],
+                        Box::new(Type::Simple("int".to_string())),
+                    ),
+                    const_val: None,
+                },
+            ),
+            (
+                "putint".to_string(),
+                SymbolInfo {
+                    qualifier: Qualifier::Const,
+                    ty: Type::Function(
+                        vec![Box::new(Type::Simple("int".to_string()))],
+                        Box::new(Type::Void),
+                    ),
+                    const_val: None,
+                },
+            ),
+            (
+                "putch".to_string(),
+                SymbolInfo {
+                    qualifier: Qualifier::Const,
+                    ty: Type::Function(
+                        vec![Box::new(Type::Simple("int".to_string()))],
+                        Box::new(Type::Void),
+                    ),
+                    const_val: None,
+                },
+            ),
+            (
+                "putarray".to_string(),
+                SymbolInfo {
+                    qualifier: Qualifier::Const,
+                    ty: Type::Function(
+                        vec![
+                            Box::new(Type::Simple("int".to_string())),
+                            Box::new(Type::Pointer(Box::new(Type::Simple("int".to_string())))),
+                        ],
+                        Box::new(Type::Void),
+                    ),
+                    const_val: None,
+                },
+            ),
+            (
+                "starttime".to_string(),
+                SymbolInfo {
+                    qualifier: Qualifier::Const,
+                    ty: Type::Function(vec![], Box::new(Type::Void)),
+                    const_val: None,
+                },
+            ),
+            (
+                "stoptime".to_string(),
+                SymbolInfo {
+                    qualifier: Qualifier::Const,
+                    ty: Type::Function(vec![], Box::new(Type::Void)),
+                    const_val: None,
+                },
+            ),
+        ];
+        for (id, syminfo) in sysy_runtime_lib {
+            self.symtable.add_symbol(id, syminfo)?;
+        }
+
+        // 开始对整个程序的检查
         for item in &prog.items {
             self.check_item(item)?;
         }
@@ -324,7 +413,7 @@ impl SemanticChecker {
                 }
 
                 // 检查参数类型
-                for expr in exprs{
+                for expr in exprs {
                     self.check_expression(expr)?;
                 }
 
