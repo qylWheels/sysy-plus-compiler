@@ -8,16 +8,11 @@ use strum::IntoEnumIterator;
 use crate::target::riscv::reg_alloc::{AllocResult, Allocation, RegAllocator, Register};
 
 #[derive(Debug, Clone)]
-pub(crate) struct PureMemoryAllocator {
-    /// 记录每个值分配到了什么
-    allocs: HashMap<Value, Allocation>,
-}
+pub(crate) struct PureMemoryAllocator;
 
 impl PureMemoryAllocator {
     pub(crate) fn new() -> Self {
-        Self {
-            allocs: HashMap::new(),
-        }
+        Self
     }
 
     // /// 判断要为对应的value分配多少栈空间
