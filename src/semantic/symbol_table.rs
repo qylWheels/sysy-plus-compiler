@@ -58,6 +58,7 @@ impl SymbolTable {
     }
 
     /// 删除符号表当前层级中的符号。若不存在，则忽略，不报错
+    #[allow(dead_code)]
     pub(crate) fn remove_symbol(&self, id: &String) {
         self.inner.borrow_mut().map.remove(id);
     }
@@ -83,7 +84,6 @@ impl SymbolTable {
     }
 
     /// 进入新的子作用域
-    #[deprecated(note = "Use \"with_scope()\" instead")]
     pub(crate) fn enter_scope(&self) -> SymbolTable {
         let child = Self::new();
         child.set_parent(&self);
@@ -100,7 +100,6 @@ impl SymbolTable {
 
     /// 退出作用域，返回到父作用域
     /// invariant: 自身必须有父作用域，否则返回错误
-    #[deprecated(note = "Use \"with_scope()\" instead")]
     pub(crate) fn exit_scope(&self) -> Result<SymbolTable, SymbolTableError> {
         match self.inner.borrow().parent.as_ref() {
             Some(parent) => Ok(SymbolTable {
