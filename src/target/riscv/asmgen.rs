@@ -107,6 +107,11 @@ impl GenerateRiscv for Program {
 
 impl GenerateRiscv for FunctionData {
     fn generate(&self, dest: &mut impl io::Write, ctx: Context) -> ResultValue {
+        // 如果只是函数声明而非定义，直接返回，不生成任何目标代码
+        if self.layout().entry_bb().is_none() {
+            return ResultValue::None;
+        }
+
         // 生成globl声明
         writeln!(dest, "{}.text", " ".repeat(ctx.indent + INDENT_SIZE)).unwrap();
         writeln!(
