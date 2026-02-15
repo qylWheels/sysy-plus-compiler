@@ -3,16 +3,16 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::OnceLock;
 
+use crate::builtins::builtin_functions::get_builtin_functions;
 use crate::parser::ast::common::ResolveStatus;
 use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
 use crate::semantic::symbol_table::{SymbolInfoError, SymbolTableError};
 use crate::{ir::typemap::typemap, parser::ast::compile_unit::CompileUnit};
-use koopa::front::ast::FunCall;
 use koopa::ir::builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::entities::ValueData;
-use koopa::ir::{BasicBlock, Function, FunctionData, Program, Type, Value, ValueKind};
+use koopa::ir::{self, BasicBlock, Function, FunctionData, Program, Type, Value, ValueKind};
 use thiserror::Error;
 
 macro_rules! new_value {
@@ -145,6 +145,26 @@ impl ProgramBuilder {
 
     pub fn build_compunit(&mut self) -> Result<Program, ProgramBuilderError> {
         let mut prog = Program::new();
+
+        // build编译器内置的item
+        let builtin_funcs_guard = get_builtin_functions().lock().unwrap();
+        for (id, syminfo) in builtin_funcs_guard.iter() {
+            let func_koopa_ty = typemap(&syminfo.ty);
+            let (params_koopa_ty, ret_koopa_ty) = match func_koopa_ty.kind() {
+                ir::TypeKind::Function(p, r) => (p, r),
+                _ => unreachable!(),
+            };
+            let func = prog.new_func(FunctionData::new_decl(
+                format!("@{}", id),
+                params_koopa_ty.clone(),
+                ret_koopa_ty.clone(),
+            ));
+
+            // 把函数加入symbol_value_map
+            self.symbol_value_map.add_function(id.clone(), func);
+        }
+
+        // build用户实现的item
         let items = &self.ast.items.clone();
         for item in items {
             self.build_item(&mut prog, item)?;
@@ -503,7 +523,7 @@ impl ProgramBuilder {
                     ResolveStatus::Unresolved => {
                         dbg!(id);
                         unreachable!()
-                    },
+                    }
                 };
                 match syminfo.is_const_val() {
                     true => {
