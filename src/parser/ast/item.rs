@@ -4,6 +4,7 @@ use super::statement::*;
 #[derive(Debug, Clone)]
 pub enum Item {
     FuncDef(FuncDef),
+    GlobalVar(Statement),
 }
 
 #[derive(Debug, Clone)]

@@ -250,6 +250,7 @@ impl ProgramBuilder {
 
                 Ok(())
             }
+            Item::GlobalVar(statement) => todo!(),
         }
     }
 

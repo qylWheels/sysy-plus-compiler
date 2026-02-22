@@ -112,6 +112,7 @@ impl SemanticChecker {
                 let old_scope = self.symtable.exit_scope()?;
                 self.symtable = old_scope;
             }
+            Item::GlobalVar(statement) => todo!(),
         }
 
         Ok(())

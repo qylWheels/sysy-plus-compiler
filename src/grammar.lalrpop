@@ -13,20 +13,30 @@ match {
 }
 
 pub CompileUnit: compile_unit::CompileUnit = {
-    //<FuncDef> => compile_unit::CompileUnit {
-    //    items: vec![<>],
-    //},
-    <first:FuncDef> <rest:(<FuncDef>)*> => {
+    <first:Item> <rest:(<Item>)*> => {
         let mut v = vec![first];
         v.extend(rest);
         compile_unit::CompileUnit {
             items: v,
         }
     }
+    // <first:FuncDef> <rest:(<FuncDef>)*> => {
+    //     let mut v = vec![first];
+    //     v.extend(rest);
+    //     compile_unit::CompileUnit {
+    //         items: v,
+    //     }
+    // }
+}
+
+Item: item::Item = {
+    <FuncDef> => <>,
+    <ConstDecl> => item::Item::GlobalVar(<>),
+    <VarDecl> => item::Item::GlobalVar(<>),
 }
 
 FuncDef: item::Item = {
-    <frt:FuncRetType> <id:Identifier> "(" <fp:FuncFParams> ")" <b:Block> => {
+    <frt:Type> <id:Identifier> "(" <fp:FuncFParams> ")" <b:Block> => {
         item::Item::FuncDef(item::FuncDef {
             return_type: frt,
             ident: id,
@@ -36,10 +46,11 @@ FuncDef: item::Item = {
     }
 }
 
-FuncRetType: common::Type = {
-    <Type> => <>,
-    "void" => common::Type::Void,
-}
+// XXX: 不应有这条，否则FuncDef规则会陷入移进/规约冲突
+// FuncRetType: common::Type = {
+//     <Type> => <>,
+//     "void" => common::Type::Void,
+// }
 
 // formal parameters of function
 FuncFParams: Vec<(common::Type, common::Identifier)> = {
@@ -212,6 +223,7 @@ PrimaryExpression: expression::Expression = {
 
 Type: common::Type = {
     "int" => common::Type::Simple("int".to_string()),
+    "void" => common::Type::Void,
 }
 
 Identifier: common::Identifier = {

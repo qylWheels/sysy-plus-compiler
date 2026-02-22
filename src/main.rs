@@ -29,7 +29,7 @@ fn main() {
     // 语法分析
     let parser = grammar::CompileUnitParser::new();
     let compunit = parser.parse(&i).unwrap();
-    // dbg!(&compunit);
+    dbg!(&compunit);
 
     // 语义检查
     let mut checker = SemanticChecker::new();
