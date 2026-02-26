@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::slice::RChunks;
 use std::sync::OnceLock;
 
 use crate::builtins::builtin_functions::get_builtin_functions;
@@ -10,7 +11,7 @@ use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
 use crate::semantic::symbol_table::{SymbolInfoError, SymbolTableError};
 use crate::{ir::typemap::typemap, parser::ast::compile_unit::CompileUnit};
-use koopa::ir::builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder};
+use koopa::ir::builder::{BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::entities::ValueData;
 use koopa::ir::{self, BasicBlock, Function, FunctionData, Program, Type, Value, ValueKind};
 use thiserror::Error;
@@ -242,6 +243,12 @@ impl ProgramBuilder {
                 if last_instr.is_none() {
                     let ret = new_instr!(func_data).ret(None);
                     add_instr!(func_data, bb, ret);
+                } else {
+                    // 如果最后一条语句存在且不是return，则添加一条返回语句
+                    if !matches!(last_instr.unwrap().kind(), ValueKind::Return(_)) {
+                        let ret = new_instr!(func_data).ret(None);
+                        add_instr!(func_data, bb, ret);
+                    }
                 }
 
                 // 返回父作用域
@@ -250,7 +257,29 @@ impl ProgramBuilder {
 
                 Ok(())
             }
-            Item::GlobalVar(statement) => todo!(),
+            Item::GlobalVar(stmt) => match stmt {
+                Statement::VarDecl(v) => {
+                    for (ty, id, expr_opt) in v {
+                        let alloc = match expr_opt {
+                            Some(expr) => {
+                                let init =
+                                    prog.new_value().integer(self.calc_global_expr_value(expr)?);
+                                let alloc = prog.new_value().global_alloc(init);
+                                alloc
+                            }
+                            None => {
+                                let init = prog.new_value().zero_init(typemap(ty));
+                                let alloc = prog.new_value().global_alloc(init);
+                                alloc
+                            }
+                        };
+                        self.symbol_value_map.add_value(id.name.clone(), alloc);
+                    }
+                    Ok(())
+                }
+                Statement::ConstDecl(_) => Ok(()), // 没必要生成ir，用到时直接调用syminfo中的const_val_of()来获取其值即可
+                _ => unreachable!(),
+            },
         }
     }
 
@@ -509,6 +538,68 @@ impl ProgramBuilder {
 
     //     Ok(result)
     // }
+
+    fn calc_global_expr_value(&self, expr: &Expression) -> Result<i32, ProgramBuilderError> {
+        match expr {
+            Expression::IntLit(i) => Ok(*i),
+            Expression::Ident(id) => {
+                let syminfo = match &*id.resolve_status.borrow() {
+                    ResolveStatus::Resolved(syminfo) => syminfo.clone(),
+                    ResolveStatus::Unresolved => {
+                        unreachable!()
+                    }
+                };
+                if syminfo.is_const_val() {
+                    return Ok(syminfo.const_val_of().unwrap());
+                } else {
+                    unreachable!(); // FIXME: 在语义检查阶段就要检查全局变量表达式的组成部分是否都为常量表达式
+                }
+            }
+            Expression::Unary(op, expr) => match op {
+                UnaryOp::Plus => self.calc_global_expr_value(expr),
+                UnaryOp::Minus => self.calc_global_expr_value(expr).map(|result| -result),
+                UnaryOp::LogicalNot => {
+                    let result = self.calc_global_expr_value(expr)?;
+                    if result == 0 {
+                        return Ok(1);
+                    } else {
+                        return Ok(0);
+                    }
+                }
+            },
+            Expression::Binary(lhs, op, rhs) => {
+                let lhs_result = self.calc_global_expr_value(lhs)?;
+                let rhs_result = self.calc_global_expr_value(rhs)?;
+                let i32_to_bool = |i: i32| i != 0;
+                let result = match op {
+                    // 算数运算符
+                    BinaryOp::Add => lhs_result + rhs_result,
+                    BinaryOp::Sub => lhs_result - rhs_result,
+                    BinaryOp::Mul => lhs_result * rhs_result,
+                    BinaryOp::Div => lhs_result / rhs_result,
+                    BinaryOp::Rem => lhs_result % rhs_result,
+
+                    // 比较运算符
+                    BinaryOp::Less => (lhs_result < rhs_result) as i32,
+                    BinaryOp::Le => (lhs_result <= rhs_result) as i32,
+                    BinaryOp::Eq => (lhs_result == rhs_result) as i32,
+                    BinaryOp::Ge => (lhs_result >= rhs_result) as i32,
+                    BinaryOp::Greater => (lhs_result > rhs_result) as i32,
+                    BinaryOp::NotEq => (lhs_result != rhs_result) as i32,
+
+                    // 逻辑运算符
+                    BinaryOp::LogicalAnd => {
+                        (i32_to_bool(lhs_result) && i32_to_bool(rhs_result)) as i32
+                    }
+                    BinaryOp::LogicalOr => {
+                        (i32_to_bool(lhs_result) || i32_to_bool(rhs_result)) as i32
+                    }
+                };
+                Ok(result)
+            }
+            _ => unreachable!(),
+        }
+    }
 
     fn build_expr(
         &self,

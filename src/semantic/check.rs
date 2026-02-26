@@ -113,8 +113,9 @@ impl SemanticChecker {
                 self.symtable = old_scope;
             }
             Item::GlobalVar(stmt) => {
+                // FIXME: 在语义检查阶段就要检查全局变量表达式的组成部分是否都为常量表达式
                 self.check_statement(stmt)?;
-            },
+            }
         }
 
         Ok(())
