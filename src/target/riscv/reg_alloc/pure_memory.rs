@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use koopa::ir::{Value, ValueKind};
+use koopa::ir::ValueKind;
 use strum::IntoEnumIterator;
 
 use crate::target::riscv::reg_alloc::{AllocResult, Allocation, RegAllocator, Register};
@@ -39,10 +39,14 @@ impl RegAllocator for PureMemoryAllocator {
         let mut need_allocs = vec![]; // 所有需要分配内存的指令
         let mut calls = vec![]; // call指令
         for (_, node) in func_data.layout().bbs() {
-            for &value in node.insts().keys() { // FIXME: 遍历不到call指令是因为只对f()函数调用了此函数！
+            for &value in node.insts().keys() {
+                // FIXME: 遍历不到call指令是因为只对f()函数调用了此函数！
                 let value_data = func_data.dfg().value(value);
                 match value_data.kind() {
-                    ValueKind::Store(_) | ValueKind::Return(_) | ValueKind::Integer(_) => (), // 不需分配
+                    ValueKind::Store(_)
+                    | ValueKind::Return(_)
+                    | ValueKind::Integer(_)
+                    | ValueKind::Jump(_) => (), // 不需分配
                     ValueKind::Call(call) => {
                         calls.push(call);
                         need_allocs.push(value); // call指令的返回值需要空间
@@ -112,6 +116,7 @@ impl RegAllocator for PureMemoryAllocator {
                 .and_modify(|_| panic!("stack memory is already allocated for {need_alloc:?}"))
                 .or_insert(Allocation::Spilled(pointer));
         }
+        // dbg!(func_data.name());
 
         // XXX: 为调用函数时的实参分配空间的工作由asmgen模块负责，本模块只负责开辟足够的空间给实参
         // 若在这里分配空间，则会出现重复分配空间的错误。

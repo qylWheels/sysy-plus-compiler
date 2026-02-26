@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::slice::RChunks;
 use std::sync::OnceLock;
 
 use crate::builtins::builtin_functions::get_builtin_functions;
@@ -265,11 +264,13 @@ impl ProgramBuilder {
                                 let init =
                                     prog.new_value().integer(self.calc_global_expr_value(expr)?);
                                 let alloc = prog.new_value().global_alloc(init);
+                                prog.set_value_name(alloc, Some("%".to_string() + &id.name)); // 设置name，以便生成汇编时引用
                                 alloc
                             }
                             None => {
                                 let init = prog.new_value().zero_init(typemap(ty));
                                 let alloc = prog.new_value().global_alloc(init);
+                                prog.set_value_name(alloc, Some("%".to_string() + &id.name)); // 设置name，以便生成汇编时引用
                                 alloc
                             }
                         };

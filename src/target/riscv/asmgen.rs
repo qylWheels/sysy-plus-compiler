@@ -85,12 +85,58 @@ pub enum ResultValue {
 //     };
 // }
 
+/// 去除变量/函数名的前导“@/%”
+macro_rules! strip_prefix {
+    ($str:expr) => {
+        $str.chars().skip(1).collect::<String>()
+    };
+}
+
 pub trait GenerateRiscv {
     fn generate(&self, dest: &mut impl io::Write, ctx: Context) -> ResultValue;
 }
 
 impl GenerateRiscv for Program {
     fn generate(&self, dest: &mut impl io::Write, ctx: Context) -> ResultValue {
+        // 生成全局变量
+        let global_vars = self.inst_layout();
+        for global_var in global_vars {
+            let valuedata = self.borrow_value(*global_var);
+            let name = valuedata.name().as_ref().unwrap();
+            match valuedata.kind() {
+                ValueKind::GlobalAlloc(ga) => {
+                    let init_value = ga.init();
+                    let init_valuedata = self.borrow_value(init_value);
+                    let mut gen = |i: i32| {
+                        writeln!(dest, "{}.data", " ".repeat(ctx.indent + INDENT_SIZE)).unwrap();
+                        writeln!(
+                            dest,
+                            "{}.globl {}",
+                            " ".repeat(ctx.indent + INDENT_SIZE),
+                            strip_prefix!(name)
+                        )
+                        .unwrap();
+                        writeln!(dest, "{}{}:", " ".repeat(ctx.indent), strip_prefix!(name))
+                            .unwrap();
+                        writeln!(dest, "{}.word {}", " ".repeat(ctx.indent + INDENT_SIZE), i)
+                            .unwrap();
+                    };
+                    match init_valuedata.kind() {
+                        ValueKind::Integer(i) => {
+                            gen(i.value());
+                        }
+                        ValueKind::ZeroInit(_) => {
+                            gen(0);
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                _ => unreachable!(),
+            }
+            writeln!(dest).unwrap(); // 输出空行分割
+        }
+
+        // 生成函数
         for func in self.func_layout() {
             let func_data = self.func(*func);
             func_data.generate(
@@ -1218,12 +1264,29 @@ impl GenerateRiscv for Value {
             ValueKind::Load(l) => {
                 // 生成读取指令
                 let src = l.src();
-                let src_offset = match ctx.alloc_result.as_ref().unwrap().allocs.get(&src).unwrap()
-                {
-                    Allocation::Spilled(offset) => *offset,
-                    _ => unimplemented!(),
+                match ctx.alloc_result.as_ref().unwrap().allocs.get(&src) {
+                    Some(alloc) => match alloc {
+                        Allocation::Spilled(offset) => {
+                            writeln!(dest, "{}lw a0, {}(sp)", " ".repeat(ctx.indent), offset)
+                                .unwrap()
+                        }
+                        _ => unimplemented!(),
+                    },
+
+                    // 全局变量，没有分配栈空间
+                    None => {
+                        let src_valuedata = ctx.prog.unwrap().borrow_value(src);
+                        let name = src_valuedata.name().as_ref().unwrap();
+                        writeln!(
+                            dest,
+                            "{}la a0, {}",
+                            " ".repeat(ctx.indent),
+                            strip_prefix!(name)
+                        )
+                        .unwrap();
+                        writeln!(dest, "{}lw a0, 0(a0)", " ".repeat(ctx.indent)).unwrap();
+                    }
                 };
-                writeln!(dest, "{}lw a0, {}(sp)", " ".repeat(ctx.indent), src_offset).unwrap();
 
                 // 生成存储指令
                 let dest_offset = match ctx
@@ -1244,6 +1307,7 @@ impl GenerateRiscv for Value {
             ValueKind::Store(s) => {
                 // writeln!(dest, "store start").unwrap();
                 let (value, dest_mem) = (s.value(), s.dest());
+                // dbg!(dest_mem);
 
                 // 生成读取指令
                 if !is_koopa_reg(value, ctx.func.unwrap()) {
@@ -1278,24 +1342,28 @@ impl GenerateRiscv for Value {
                 }
 
                 // 生成存储指令
-                let dest_mem_offset = match ctx
-                    .alloc_result
-                    .as_ref()
-                    .unwrap()
-                    .allocs
-                    .get(&dest_mem)
-                    .unwrap()
-                {
-                    Allocation::Spilled(off) => *off,
-                    _ => unimplemented!(),
+                match ctx.alloc_result.as_ref().unwrap().allocs.get(&dest_mem) {
+                    Some(alloc) => match alloc {
+                        Allocation::Spilled(off) => {
+                            writeln!(dest, "{}sw a0, {}(sp)", " ".repeat(ctx.indent), off).unwrap()
+                        }
+                        _ => unimplemented!(),
+                    },
+
+                    // 全局变量，没有分配栈空间
+                    None => {
+                        let dest_value = ctx.prog.unwrap().borrow_value(dest_mem);
+                        let dest_name = dest_value.name().as_ref().unwrap();
+                        writeln!(
+                            dest,
+                            "{}la t0, {}",
+                            " ".repeat(ctx.indent),
+                            strip_prefix!(dest_name)
+                        )
+                        .unwrap();
+                        writeln!(dest, "{}sw a0, 0(t0)", " ".repeat(ctx.indent)).unwrap();
+                    }
                 };
-                writeln!(
-                    dest,
-                    "{}sw a0, {}(sp)",
-                    " ".repeat(ctx.indent),
-                    dest_mem_offset
-                )
-                .unwrap();
 
                 // writeln!(dest, "store end").unwrap();
 
