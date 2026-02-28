@@ -293,34 +293,38 @@ impl ProgramBuilder {
     ) -> Result<Context, ProgramBuilderError> {
         match stmt {
             Statement::Return(expr) => {
-                let ret_val = self.build_expr(expr, func_data, &ctx)?;
+                let (ret_val, ret_ctx) = self.build_expr(expr, func_data, &ctx)?;
                 let ret_stmt = func_data.dfg_mut().new_value().ret(Some(ret_val));
-                add_instr!(func_data, ctx.in_block, ret_stmt);
-                Ok(ctx.clone())
+                add_instr!(func_data, ret_ctx.in_block, ret_stmt);
+                Ok(ret_ctx)
             }
             Statement::ConstDecl(_) => Ok(ctx.clone()),
             Statement::VarDecl(v) => {
+                let mut new_ctx_outer = ctx.clone(); // 初始设为当前ctx
                 for (_, id, expr_opt) in v {
                     let alloc = new_value!(func_data).alloc(Type::get_i32());
                     add_instr!(func_data, ctx.in_block, alloc);
                     self.symbol_value_map.add_value(id.name.clone(), alloc);
                     if let Some(expr) = expr_opt {
-                        let val = self.build_expr(expr, func_data, ctx)?;
+                        let (val, new_ctx) = self.build_expr(expr, func_data, ctx)?;
                         let store = new_value!(func_data).store(val, alloc);
-                        add_instr!(func_data, ctx.in_block, store);
+                        add_instr!(func_data, new_ctx.in_block, store);
+                        new_ctx_outer = new_ctx; // 有新的ctx再设为新的ctx
                     }
                 }
-                Ok(ctx.clone())
+                Ok(new_ctx_outer.clone())
             }
             Statement::Assign(lval, expr) => {
                 let lval = self.symbol_value_map.find_value(&lval.name);
-                let value = self.build_expr(expr, func_data, ctx)?;
+                let (value, new_ctx) = self.build_expr(expr, func_data, ctx)?;
                 let instr = new_instr!(func_data).store(value, lval);
-                add_instr!(func_data, ctx.in_block, instr);
-                Ok(ctx.clone())
+                add_instr!(func_data, new_ctx.in_block, instr);
+                Ok(new_ctx.clone())
             }
             Statement::Expression(expr_opt) => match expr_opt {
-                Some(expr) => self.build_expr(expr, func_data, ctx).map(|_| ctx.clone()),
+                Some(expr) => self
+                    .build_expr(expr, func_data, ctx)
+                    .map(|(_, new_ctx)| new_ctx.clone()),
                 None => Ok(ctx.clone()),
             },
             Statement::Block(b) => {
@@ -401,9 +405,7 @@ impl ProgramBuilder {
                 };
 
                 // 生成guard及跳转代码
-                // TODO: 实现短路求值
-                // self.handle_short_circuit_evaluation(guard, func_data, bb, then_bb, else_bb)?;
-                let guard_ir = self.build_expr(
+                let (guard_ir, guard_ctx) = self.build_expr(
                     guard,
                     func_data,
                     &Context {
@@ -415,7 +417,7 @@ impl ProgramBuilder {
                     Some(else_bb) => new_instr!(func_data).branch(guard_ir, then_bb, else_bb),
                     None => new_instr!(func_data).branch(guard_ir, then_bb, merge_bb),
                 };
-                add_instr!(func_data, guard_bb, branch_ir);
+                add_instr!(func_data, guard_ctx.in_block, branch_ir);
 
                 Ok(Context {
                     in_block: merge_bb,
@@ -427,7 +429,9 @@ impl ProgramBuilder {
                 let guard_bb = new_bb!(func_data, generate_name!("%while_guard"));
                 let body_bb = new_bb!(func_data, generate_name!("%while_body"));
                 let end_bb = new_bb!(func_data, generate_name!("%while_end"));
-                let (old_while_begin, old_while_end) = (ctx.while_begin, ctx.while_end);
+
+                // 保存外层while的信息
+                let (outer_while_begin, outer_while_end) = (ctx.while_begin, ctx.while_end);
 
                 // 将与while有关的块加入
                 add_bb!(func_data, guard_bb);
@@ -439,7 +443,7 @@ impl ProgramBuilder {
                 add_instr!(func_data, ctx.in_block, jump_to_guard);
 
                 // 生成guard块中的代码
-                let guard = self.build_expr(
+                let (guard, guard_ctx) = self.build_expr(
                     expr,
                     func_data,
                     &Context {
@@ -448,7 +452,7 @@ impl ProgramBuilder {
                     },
                 )?;
                 let branch = new_instr!(func_data).branch(guard, body_bb, end_bb);
-                add_instr!(func_data, guard_bb, branch);
+                add_instr!(func_data, guard_ctx.in_block, branch);
 
                 // 生成body块中的代码
                 let ctx_after_gen_body = self.build_stmt(
@@ -469,8 +473,8 @@ impl ProgramBuilder {
 
                 Ok(Context {
                     in_block: end_bb,
-                    while_begin: old_while_begin,
-                    while_end: old_while_end,
+                    while_begin: outer_while_begin,
+                    while_end: outer_while_end,
                 })
             }
             Statement::Break => {
@@ -510,35 +514,95 @@ impl ProgramBuilder {
         }
     }
 
-    // fn handle_short_circuit_evaluation(
-    //     &mut self,
-    //     expr: &Expression,
-    //     func_data: &mut FunctionData,
-    //     entry: BasicBlock,
-    //     then_br: BasicBlock,
-    //     else_br: BasicBlock,
-    //     result: Value,
-    // ) -> Result<Value, ProgramBuilderError> {
-    // match expr {
-    //     Expression::Binary(lhs, binop, rhs) => {
-    //         // 生成lhs和rhs的代码
-    //         let lhs_result=self.handle_short_circuit_evaluation(lhs, func_data, entry, then_br, else_br,result)?;
-    //         let rhs_result=self.handle_short_circuit_evaluation(rhs, func_data, entry, then_br, else_br,result)?;
+    /// 处理短路求值
+    fn handle_short_circuit_eval(
+        &self,
+        expr: &Expression,
+        func_data: &mut FunctionData,
+        ctx: &Context,
+    ) -> Result<(Value, Context), ProgramBuilderError> {
+        match expr {
+            Expression::Binary(lhs, binop, rhs) => {
+                // 预备好基本块
+                let short_circuit_block =
+                    new_bb!(func_data, generate_name!("@short_circuit_block"));
+                let eval_rhs_block = new_bb!(func_data, generate_name!("@eval_rhs_block"));
+                let short_circuit_merge =
+                    new_bb!(func_data, generate_name!("@short_circuit_merge"));
+                add_bb!(func_data, short_circuit_block);
+                add_bb!(func_data, eval_rhs_block);
+                add_bb!(func_data, short_circuit_merge);
 
-    //         // 生成访存指令
-    //         let load=new_instr!(func_data).load(lhs_result);
-    //         add_instr!(func_data, entry, load);
+                // 用于存储最终结果的存储单元
+                let final_result = new_instr!(func_data).alloc(Type::get_i32());
+                add_instr!(func_data, ctx.in_block, final_result);
 
-    //         match binop {
-    //             BinaryOp::LogicalOr => {
-    //                 let branch=new_instr!(func_data).branch(load, then_br, false_bb)
-    //             }
-    //         }
-    //     }
-    // }
+                // 生成lhs对应的代码
+                let (lhs_val, lhs_ctx) = self.build_expr(lhs, func_data, ctx)?;
 
-    //     Ok(result)
-    // }
+                // 入口块：根据lhs的值判断是否需要跳转
+                let br = match binop {
+                    BinaryOp::LogicalOr => {
+                        new_instr!(func_data).branch(lhs_val, short_circuit_block, eval_rhs_block)
+                    }
+
+                    BinaryOp::LogicalAnd => {
+                        new_instr!(func_data).branch(lhs_val, eval_rhs_block, short_circuit_block)
+                    }
+                    _ => unreachable!(),
+                };
+                add_instr!(func_data, lhs_ctx.in_block, br);
+
+                // 短路结果块：直接得出结果并存到final_result中
+                match binop {
+                    BinaryOp::LogicalOr => {
+                        let result = new_value!(func_data).integer(1);
+                        let store = new_instr!(func_data).store(result, final_result);
+                        add_instr!(func_data, short_circuit_block, store);
+                    }
+                    BinaryOp::LogicalAnd => {
+                        let result = new_value!(func_data).integer(0);
+                        let store = new_instr!(func_data).store(result, final_result);
+                        add_instr!(func_data, short_circuit_block, store);
+                    }
+                    _ => unreachable!(),
+                };
+                let jump_to_merge = new_instr!(func_data).jump(short_circuit_merge);
+                add_instr!(func_data, short_circuit_block, jump_to_merge); // 跳到merge块
+
+                // 计算rhs块：计算rhs的结果并存到final_result中
+                let (rhs_val, rhs_ctx) = self.build_expr(
+                    rhs,
+                    func_data,
+                    &Context {
+                        in_block: eval_rhs_block,
+                        ..lhs_ctx.clone()
+                    },
+                )?;
+                let store = new_instr!(func_data).store(rhs_val, final_result);
+                add_instr!(func_data, rhs_ctx.in_block, store);
+                add_instr!(func_data, rhs_ctx.in_block, jump_to_merge); // 跳到merge块
+
+                // dbg!(
+                //     func_data.dfg().value(lhs_val).ty(),
+                //     func_data.dfg().value(rhs_val).ty(),
+                //     func_data.dfg().value(final_result).ty()
+                // );
+
+                // 合并块：后续代码在此处生成
+                Ok((
+                    final_result,
+                    Context {
+                        in_block: short_circuit_merge,
+                        ..rhs_ctx.clone()
+                    },
+                ))
+            }
+
+            // 非binary表达式，也就不可能是逻辑与/或表达式
+            expr => self.build_expr(expr, func_data, ctx),
+        }
+    }
 
     fn calc_global_expr_value(&self, expr: &Expression) -> Result<i32, ProgramBuilderError> {
         match expr {
@@ -607,9 +671,9 @@ impl ProgramBuilder {
         expr: &Expression,
         func_data: &mut FunctionData,
         ctx: &Context,
-    ) -> Result<Value, ProgramBuilderError> {
+    ) -> Result<(Value, Context), ProgramBuilderError> {
         match expr {
-            Expression::IntLit(i) => Ok(func_data.dfg_mut().new_value().integer(*i)),
+            Expression::IntLit(i) => Ok((func_data.dfg_mut().new_value().integer(*i), ctx.clone())),
             Expression::Ident(id) => {
                 let syminfo = match &*id.resolve_status.borrow() {
                     ResolveStatus::Resolved(syminfo) => syminfo.clone(),
@@ -621,21 +685,21 @@ impl ProgramBuilder {
                 match syminfo.is_const_val() {
                     true => {
                         let val = syminfo.const_val_of()?;
-                        Ok(new_value!(func_data).integer(val))
+                        Ok((new_value!(func_data).integer(val), ctx.clone()))
                     }
                     false => {
                         let value = self.symbol_value_map.find_value(&id.name);
                         let instr = new_instr!(func_data).load(value);
                         add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        Ok((instr, ctx.clone()))
                     }
                 }
             }
             Expression::Unary(op, expr) => {
-                let value = self.build_expr(expr, func_data, ctx)?;
+                let (value, ctx) = self.build_expr(expr, func_data, ctx)?;
                 let zero = func_data.dfg_mut().new_value().integer(0);
                 match op {
-                    UnaryOp::Plus => Ok(value),
+                    UnaryOp::Plus => Ok((value, ctx.clone())),
                     UnaryOp::Minus => {
                         let instr = func_data.dfg_mut().new_value().binary(
                             koopa::ir::BinaryOp::Sub,
@@ -643,7 +707,7 @@ impl ProgramBuilder {
                             value,
                         );
                         add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        Ok((instr, ctx.clone()))
                     }
                     UnaryOp::LogicalNot => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -652,13 +716,24 @@ impl ProgramBuilder {
                             value,
                         );
                         add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        Ok((instr, ctx.clone()))
                     }
                 }
             }
             Expression::Binary(e1, op, e2) => {
-                let v1 = self.build_expr(e1, func_data, ctx)?;
-                let v2 = self.build_expr(e2, func_data, ctx)?;
+                // 首先判断是否需要短路求值，若是则提前操作，这样就不用执行下面求lhs和rhs的语句
+                // 从而多生成一遍lhs和rhs的代码了
+                if matches!(op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr) {
+                    let (result, result_ctx) =
+                        self.handle_short_circuit_eval(expr, func_data, &ctx)?;
+                    let load = new_instr!(func_data).load(result);
+                    add_instr!(func_data, result_ctx.in_block, load);
+                    return Ok((load, result_ctx.clone()));
+                }
+
+                // 不是短路求值，正常处理
+                let (v1, ctx1) = self.build_expr(e1, func_data, ctx)?;
+                let (v2, ctx2) = self.build_expr(e2, func_data, &ctx1)?;
                 let zero = new_instr!(func_data).integer(0);
                 match op {
                     BinaryOp::Add => {
@@ -667,8 +742,8 @@ impl ProgramBuilder {
                             v1,
                             v2,
                         );
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::Sub => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -676,8 +751,8 @@ impl ProgramBuilder {
                             v1,
                             v2,
                         );
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::Mul => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -685,8 +760,8 @@ impl ProgramBuilder {
                             v1,
                             v2,
                         );
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::Div => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -694,8 +769,8 @@ impl ProgramBuilder {
                             v1,
                             v2,
                         );
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::Rem => {
                         let instr = func_data.dfg_mut().new_value().binary(
@@ -703,8 +778,8 @@ impl ProgramBuilder {
                             v1,
                             v2,
                         );
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::Less => {
                         let instr =
@@ -712,8 +787,8 @@ impl ProgramBuilder {
                                 .dfg_mut()
                                 .new_value()
                                 .binary(koopa::ir::BinaryOp::Lt, v1, v2);
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::Le => {
                         let instr =
@@ -721,8 +796,8 @@ impl ProgramBuilder {
                                 .dfg_mut()
                                 .new_value()
                                 .binary(koopa::ir::BinaryOp::Le, v1, v2);
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::Eq => {
                         let instr =
@@ -730,60 +805,27 @@ impl ProgramBuilder {
                                 .dfg_mut()
                                 .new_value()
                                 .binary(koopa::ir::BinaryOp::Eq, v1, v2);
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::Ge => {
                         let instr = new_instr!(func_data).binary(koopa::ir::BinaryOp::Ge, v1, v2);
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::Greater => {
                         let instr = new_instr!(func_data).binary(koopa::ir::BinaryOp::Gt, v1, v2);
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
                     BinaryOp::NotEq => {
                         let instr =
                             new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v1, v2);
-                        add_instr!(func_data, ctx.in_block, instr);
-                        Ok(instr)
+                        add_instr!(func_data, ctx2.in_block, instr);
+                        Ok((instr, ctx2.clone()))
                     }
-                    BinaryOp::LogicalAnd => {
-                        let v1_instr =
-                            new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v1, zero);
-                        add_instr!(func_data, ctx.in_block, v1_instr);
-
-                        let v2_instr =
-                            new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v2, zero);
-                        add_instr!(func_data, ctx.in_block, v2_instr);
-
-                        let result = new_instr!(func_data).binary(
-                            koopa::ir::BinaryOp::And,
-                            v1_instr,
-                            v2_instr,
-                        );
-                        add_instr!(func_data, ctx.in_block, result);
-
-                        Ok(result)
-                    }
-                    BinaryOp::LogicalOr => {
-                        let v1_instr =
-                            new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v1, zero);
-                        add_instr!(func_data, ctx.in_block, v1_instr);
-
-                        let v2_instr =
-                            new_instr!(func_data).binary(koopa::ir::BinaryOp::NotEq, v2, zero);
-                        add_instr!(func_data, ctx.in_block, v2_instr);
-
-                        let result = new_instr!(func_data).binary(
-                            koopa::ir::BinaryOp::Or,
-                            v1_instr,
-                            v2_instr,
-                        );
-                        add_instr!(func_data, ctx.in_block, result);
-
-                        Ok(result)
+                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => {
+                        unreachable!(); // 已在本函数开头处理
                     }
                 }
             }
@@ -791,15 +833,17 @@ impl ProgramBuilder {
                 // dbg!(&identifier.name);
                 // dbg!(&self.symbol_value_map);
                 let callee = self.symbol_value_map.find_function(&identifier.name);
-                let args: Result<Vec<Value>, ProgramBuilderError> = expressions
-                    .iter()
-                    .map(|e| self.build_expr(e, func_data, ctx))
-                    .collect();
-                let args = args?;
+                let mut args = vec![];
+                let mut current_ctx = ctx.clone();
+                for expr in expressions {
+                    let (value, ctx) = self.build_expr(expr, func_data, &current_ctx)?;
+                    args.push(value);
+                    current_ctx = ctx;
+                }
                 let call = new_instr!(func_data).call(callee, args);
-                add_instr!(func_data, ctx.in_block, call);
+                add_instr!(func_data, current_ctx.in_block, call);
 
-                Ok(call)
+                Ok((call, current_ctx))
             }
         }
     }
