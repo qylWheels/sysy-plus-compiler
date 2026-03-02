@@ -1,8 +1,8 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use sysy_compiler::ir::irgen;
-use sysy_compiler::ir::program_builder;
+use sysy_compiler::ir::koopa::irgen;
+use sysy_compiler::ir::koopa::program_builder;
 use sysy_compiler::parser::grammar;
 use sysy_compiler::semantic::check::SemanticChecker;
 use sysy_compiler::target::riscv::asmgen::Context;

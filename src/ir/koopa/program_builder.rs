@@ -9,7 +9,7 @@ use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
 use crate::semantic::symbol_table::{SymbolInfoError, SymbolTableError};
-use crate::{ir::typemap::typemap, parser::ast::compile_unit::CompileUnit};
+use crate::{ir::koopa::typemap::typemap, parser::ast::compile_unit::CompileUnit};
 use koopa::ir::builder::{BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::entities::ValueData;
 use koopa::ir::{self, BasicBlock, Function, FunctionData, Program, Type, Value, ValueKind};
