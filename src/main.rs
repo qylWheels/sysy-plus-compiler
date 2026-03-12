@@ -1,12 +1,11 @@
+use inkwell::context::Context;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use sysy_compiler::ir::koopa::irgen;
-use sysy_compiler::ir::koopa::program_builder;
+use sysy_compiler::ir;
+use sysy_compiler::ir::inkwell::builder::IrGenerator;
 use sysy_compiler::parser::grammar;
 use sysy_compiler::semantic::check::SemanticChecker;
-use sysy_compiler::target::riscv::asmgen::Context;
-use sysy_compiler::target::riscv::asmgen::GenerateRiscv;
 
 #[derive(Debug, Clone)]
 struct Cli {
@@ -36,17 +35,18 @@ fn main() {
     checker.check(&compunit).unwrap();
     // dbg!("checked!");
 
-    // IR/目标代码生成
-    let program = program_builder::ProgramBuilder::new(compunit)
-        .build_compunit()
-        .unwrap();
-    match cli.target.as_ref() {
-        "-koopa" => irgen::irgen(&program, o),
-        "-riscv" => {
-            let _ = program.generate(&mut o, Context::new());
-        }
-        _ => unimplemented!(),
-    }
+    // IR生成
+    let ctx = Context::create();
+    let ir_generator = IrGenerator::new(&ctx);
+    let module = ir_generator.build_compunit(&compunit).unwrap();
+    module.print_to_stderr();
+    // match cli.target.as_ref() {
+    //     "-koopa" => irgen::irgen(&program, o),
+    //     "-riscv" => {
+    //         let _ = program.generate(&mut o, Context::new());
+    //     }
+    //     _ => unimplemented!(),
+    // }
 }
 
 fn parse_args() -> Cli {
