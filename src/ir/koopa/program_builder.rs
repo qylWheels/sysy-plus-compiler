@@ -9,7 +9,7 @@ use crate::parser::ast::expression::{BinaryOp, Expression, UnaryOp};
 use crate::parser::ast::item::Item;
 use crate::parser::ast::statement::Statement;
 use crate::semantic::symbol_table::{SymbolInfoError, SymbolTableError};
-use crate::{ir::typemap::typemap, parser::ast::compile_unit::CompileUnit};
+use crate::{ir::koopa::typemap::typemap, parser::ast::compile_unit::CompileUnit};
 use koopa::ir::builder::{BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::entities::ValueData;
 use koopa::ir::{self, BasicBlock, Function, FunctionData, Program, Type, Value, ValueKind};
@@ -734,7 +734,7 @@ impl ProgramBuilder {
                 // 不是短路求值，正常处理
                 let (v1, ctx1) = self.build_expr(e1, func_data, ctx)?;
                 let (v2, ctx2) = self.build_expr(e2, func_data, &ctx1)?;
-                let zero = new_instr!(func_data).integer(0);
+                // let zero = new_instr!(func_data).integer(0);
                 match op {
                     BinaryOp::Add => {
                         let instr = func_data.dfg_mut().new_value().binary(
