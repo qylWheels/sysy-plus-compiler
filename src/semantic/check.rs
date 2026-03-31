@@ -123,51 +123,44 @@ impl SemanticChecker {
 
     fn check_statement(&mut self, stmt: &Statement) -> Result<(), SemanticError> {
         match stmt {
-            Statement::ConstDecl(v) => {
-                for (ty, id, expr) in v {
-                    // 对等号右边的表达式进行语义检查
-                    self.check_expression(expr)?;
+            Statement::ConstDef(id, ty_opt, expr) => {
+                // 对等号右边的表达式进行语义检查
+                self.check_expression(expr)?;
 
-                    // 计算常量值
-                    let val = self.eval_const_val(expr)?;
+                // 计算常量值
+                let val = self.eval_const_val(expr)?;
 
-                    // 创建SymbolInfo结构体
-                    let syminfo = SymbolInfo {
-                        qualifier: Qualifier::Const,
-                        ty: ty.clone(),
-                        const_val: Some(val),
-                    };
+                // 创建SymbolInfo结构体
+                let syminfo = SymbolInfo {
+                    qualifier: Qualifier::Const,
+                    ty: ty_opt.clone().unwrap(),
+                    const_val: Some(val),
+                };
 
-                    // 将id对应的信息写入ast
-                    *id.resolve_status.borrow_mut() = ResolveStatus::Resolved(syminfo.clone());
+                // 将id对应的信息写入ast
+                *id.resolve_status.borrow_mut() = ResolveStatus::Resolved(syminfo.clone());
 
-                    // 将id对应的信息写入符号表
-                    self.symtable.add_symbol(id.name.clone(), syminfo.clone())?;
-                }
+                // 将id对应的信息写入符号表
+                self.symtable.add_symbol(id.name.clone(), syminfo.clone())?;
             }
-            Statement::VarDecl(v) => {
-                for (ty, id, expr_opt) in v {
-                    // 对等号右边的表达式进行语义检查
-                    match expr_opt {
-                        Some(expr) => self.check_expression(expr)?,
-                        None => (),
-                    }
+            Statement::VarDef(id, ty_opt, expr) => {
+                // 对等号右边的表达式进行语义检查
+                self.check_expression(expr)?;
 
-                    // 创建SymbolInfo结构体
-                    let syminfo = SymbolInfo {
-                        qualifier: Qualifier::Var,
-                        ty: ty.clone(),
-                        const_val: None,
-                    };
+                // 创建SymbolInfo结构体
+                let syminfo = SymbolInfo {
+                    qualifier: Qualifier::Var,
+                    ty: ty_opt.clone().unwrap(),
+                    const_val: None,
+                };
 
-                    // 将id对应的作用域信息写入ast
-                    // dbg!(id);
-                    *id.resolve_status.borrow_mut() = ResolveStatus::Resolved(syminfo.clone());
-                    // dbg!(id);
+                // 将id对应的作用域信息写入ast
+                // dbg!(id);
+                *id.resolve_status.borrow_mut() = ResolveStatus::Resolved(syminfo.clone());
+                // dbg!(id);
 
-                    // 将id对应的作用域信息写入符号表
-                    self.symtable.add_symbol(id.name.clone(), syminfo.clone())?;
-                }
+                // 将id对应的作用域信息写入符号表
+                self.symtable.add_symbol(id.name.clone(), syminfo.clone())?;
             }
             Statement::Assign(lval, expr) => {
                 // 在符号表中查找id对应的SymbolInfo
