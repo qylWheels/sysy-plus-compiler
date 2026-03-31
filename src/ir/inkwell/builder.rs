@@ -126,7 +126,7 @@ impl<'ctx> IrGenerator<'ctx> {
                 // 构建参数类型
                 let params_tys = fparams
                     .iter()
-                    .map(|(ty, _)| self.type_mapper.map(ty, self.context).into())
+                    .map(|(_, ty)| self.type_mapper.map(ty, self.context).into())
                     .collect::<Vec<BasicMetadataTypeEnum<'_>>>();
 
                 // 构建返回值类型
@@ -143,7 +143,7 @@ impl<'ctx> IrGenerator<'ctx> {
                 for i in 0..params.len() {
                     self.scope
                         .borrow_mut()
-                        .add_value(fparams[i].1.name.clone(), &params[i]);
+                        .add_value(fparams[i].0.name.clone(), &params[i]);
                 }
 
                 // 创建函数入口块

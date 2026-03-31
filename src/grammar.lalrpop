@@ -36,11 +36,11 @@ Item: item::Item = {
 }
 
 FuncDef: item::Item = {
-    <frt:Type> <id:Identifier> "(" <fp:FuncFParams> ")" <b:Block> => {
+    "func" <id:Identifier> "(" <fp:FuncFParams> ")" <frt:Type> <b:Block> => {
         item::Item::FuncDef(item::FuncDef {
-            return_type: frt,
             ident: id,
             fparams: fp,
+            return_type: frt,
             body: b,
         })
     }
@@ -53,7 +53,7 @@ FuncDef: item::Item = {
 // }
 
 // formal parameters of function
-FuncFParams: Vec<(common::Type, common::Identifier)> = {
+FuncFParams: Vec<(common::Identifier, common::Type)> = {
     /* empty */ => vec![],
     <first:FuncFParam> <rest:("," <FuncFParam>)*> => {
         let mut v = vec![first];
@@ -62,8 +62,8 @@ FuncFParams: Vec<(common::Type, common::Identifier)> = {
     }
 }
 
-FuncFParam: (common::Type, common::Identifier) = {
-    <ty:Type> <id:Identifier> => (ty, id)
+FuncFParam: (common::Identifier, common::Type) = {
+    <id:Identifier> ":" <ty:Type> => (id, ty)
 }
 
 // real parameters of function

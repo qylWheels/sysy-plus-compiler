@@ -78,7 +78,7 @@ impl SemanticChecker {
                 let params_types = f
                     .fparams
                     .iter()
-                    .map(|(ty, _)| Box::new(ty.clone()))
+                    .map(|(_, ty)| Box::new(ty.clone()))
                     .collect::<Vec<_>>();
                 let syminfo = SymbolInfo {
                     qualifier: Qualifier::Const, // TODO: 斟酌此字段的内容
@@ -93,7 +93,7 @@ impl SemanticChecker {
                 self.symtable = new_scope;
 
                 // 对函数形参进行检查并将信息写入ast
-                for (ty, id) in &f.fparams {
+                for (id, ty) in &f.fparams {
                     let syminfo = SymbolInfo {
                         qualifier: Qualifier::Var,
                         ty: ty.clone(),
