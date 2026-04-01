@@ -9,8 +9,8 @@ pub enum Item {
 
 #[derive(Debug, Clone)]
 pub struct FuncDef {
-    pub(crate) return_type: Type,
     pub(crate) ident: Identifier,
-    pub(crate) fparams: Vec<(Type, Identifier)>,
+    pub(crate) fparams: Vec<(Identifier, Type)>,
+    pub(crate) return_type: Type,
     pub(crate) body: Vec<Statement>,
 }

@@ -126,7 +126,7 @@ impl<'ctx> IrGenerator<'ctx> {
                 // 构建参数类型
                 let params_tys = fparams
                     .iter()
-                    .map(|(ty, _)| self.type_mapper.map(ty, self.context).into())
+                    .map(|(_, ty)| self.type_mapper.map(ty, self.context).into())
                     .collect::<Vec<BasicMetadataTypeEnum<'_>>>();
 
                 // 构建返回值类型
@@ -143,7 +143,7 @@ impl<'ctx> IrGenerator<'ctx> {
                 for i in 0..params.len() {
                     self.scope
                         .borrow_mut()
-                        .add_value(fparams[i].1.name.clone(), &params[i]);
+                        .add_value(fparams[i].0.name.clone(), &params[i]);
                 }
 
                 // 创建函数入口块
@@ -175,7 +175,7 @@ impl<'ctx> IrGenerator<'ctx> {
                 Ok(())
             }
             Item::GlobalVar(stmt) => match stmt {
-                Statement::VarDecl(v) => {
+                Statement::VarDef(_, _, _) => {
                     todo!()
                     // for (ty, id, expr_opt) in v {
                     //     match expr_opt {
@@ -186,7 +186,7 @@ impl<'ctx> IrGenerator<'ctx> {
                     //     }
                     // }
                 }
-                Statement::ConstDecl(c) => {
+                Statement::ConstDef(_, _, _) => {
                     todo!()
                 }
                 _ => unimplemented!(),
@@ -215,33 +215,17 @@ impl<'ctx> IrGenerator<'ctx> {
                 };
                 self.builder.build_return(Some(&v))?;
             }
-            Statement::ConstDecl(v) => {
-                for (ty, id, expr) in v {
-                    let llvm_ty = self.type_mapper.map(ty, self.context);
+            Statement::ConstDef(id, ty_opt, expr) | Statement::VarDef(id, ty_opt, expr) => {
+                if ty_opt.is_some() {
+                    let llvm_ty = self.type_mapper.map(ty_opt.as_ref().unwrap(), self.context);
                     let alloca = self.builder.build_alloca(llvm_ty, &id.name)?;
                     let v = self.build_expr(expr)?;
                     self.builder.build_store(alloca, v)?;
                     self.scope
                         .borrow_mut()
                         .add_value(id.name.clone(), &alloca.as_basic_value_enum());
-                }
-            }
-            Statement::VarDecl(v) => {
-                for (ty, id, expr_opt) in v {
-                    let llvm_ty = self.type_mapper.map(ty, self.context);
-                    let alloca = self.builder.build_alloca(llvm_ty, &id.name)?;
-                    let v = match expr_opt {
-                        Some(expr) => self.build_expr(expr)?,
-                        None => self
-                            .context
-                            .i32_type()
-                            .const_int(0, false)
-                            .as_basic_value_enum(),
-                    };
-                    self.builder.build_store(alloca, v)?;
-                    self.scope
-                        .borrow_mut()
-                        .add_value(id.name.clone(), &alloca.as_basic_value_enum());
+                } else {
+                    todo!("未实现类型推断");
                 }
             }
             Statement::Assign(id, expr) => {

@@ -5,8 +5,8 @@ use super::expression::*;
 #[derive(Debug, Clone)]
 pub enum Statement {
     Return(Expression),
-    ConstDecl(Vec<(Type, Identifier, Expression)>),
-    VarDecl(Vec<(Type, Identifier, Option<Expression>)>),
+    ConstDef(Identifier, Option<Type>, Expression),
+    VarDef(Identifier, Option<Type>, Expression),
     Assign(Identifier, Expression),
     Expression(Option<Expression>),
     Block(Vec<Box<Statement>>),
