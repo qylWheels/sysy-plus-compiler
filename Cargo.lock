@@ -226,15 +226,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -286,7 +277,7 @@ dependencies = [
  "ascii-canvas",
  "bit-set",
  "ena",
- "itertools 0.14.0",
+ "itertools",
  "lalrpop-util",
  "petgraph",
  "pico-args",
@@ -416,18 +407,6 @@ name = "pico-args"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
-
-[[package]]
-name = "polytype"
-version = "7.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00d4945f2249242fec165fd6f37cddb6fd84bb3ca80b55891c69db0546ff5198"
-dependencies = [
- "indexmap",
- "itertools 0.12.1",
- "parking_lot",
- "winnow",
-]
 
 [[package]]
 name = "precomputed-hash"
@@ -607,7 +586,6 @@ dependencies = [
  "koopa",
  "lalrpop",
  "lalrpop-util",
- "polytype",
  "strum",
  "strum_macros",
  "thiserror",
@@ -838,15 +816,6 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-
-[[package]]
-name = "winnow"
-version = "0.5.40"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f593a95398737aeed53e489c785df13f3618e41dbcd6718c6addbf1395aa6876"
-dependencies = [
- "memchr",
-]
 
 [[package]]
 name = "wit-bindgen"
