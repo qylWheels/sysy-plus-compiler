@@ -121,7 +121,6 @@ pub enum SymbolInfoError {
 pub struct SymbolInfo {
     pub(crate) qualifier: Qualifier,
     pub(crate) ty: Type,
-    pub(crate) const_val: Option<i32>,
 }
 
 impl SymbolInfo {
@@ -129,13 +128,6 @@ impl SymbolInfo {
         match self.qualifier {
             Qualifier::Const => true,
             Qualifier::Var => false,
-        }
-    }
-
-    pub(crate) fn const_val_of(&self) -> Result<i32, SymbolInfoError> {
-        match self.const_val {
-            Some(i) => Ok(i),
-            None => Err(SymbolInfoError::NotConstValue),
         }
     }
 }

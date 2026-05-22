@@ -7,6 +7,7 @@ use crate::{
 
 static BUILTIN_FUNCTIONS: OnceLock<Mutex<Vec<(String, SymbolInfo)>>> = OnceLock::new();
 
+// TODO: 修改内置函数表，使其不必遵循sysy的要求
 pub(crate) fn get_builtin_functions() -> &'static Mutex<Vec<(String, SymbolInfo)>> {
     BUILTIN_FUNCTIONS.get_or_init(|| {
         Mutex::new(vec![
@@ -15,7 +16,6 @@ pub(crate) fn get_builtin_functions() -> &'static Mutex<Vec<(String, SymbolInfo)
                 SymbolInfo {
                     qualifier: Qualifier::Const,
                     ty: Type::Function(vec![], Box::new(Type::Simple("int".to_string()))),
-                    const_val: None,
                 },
             ),
             (
@@ -23,7 +23,6 @@ pub(crate) fn get_builtin_functions() -> &'static Mutex<Vec<(String, SymbolInfo)
                 SymbolInfo {
                     qualifier: Qualifier::Const,
                     ty: Type::Function(vec![], Box::new(Type::Simple("int".to_string()))),
-                    const_val: None,
                 },
             ),
             (
@@ -36,7 +35,6 @@ pub(crate) fn get_builtin_functions() -> &'static Mutex<Vec<(String, SymbolInfo)
                         ))))],
                         Box::new(Type::Simple("int".to_string())),
                     ),
-                    const_val: None,
                 },
             ),
             (
@@ -47,7 +45,6 @@ pub(crate) fn get_builtin_functions() -> &'static Mutex<Vec<(String, SymbolInfo)
                         vec![Box::new(Type::Simple("int".to_string()))],
                         Box::new(Type::Void),
                     ),
-                    const_val: None,
                 },
             ),
             (
@@ -58,7 +55,6 @@ pub(crate) fn get_builtin_functions() -> &'static Mutex<Vec<(String, SymbolInfo)
                         vec![Box::new(Type::Simple("int".to_string()))],
                         Box::new(Type::Void),
                     ),
-                    const_val: None,
                 },
             ),
             (
@@ -72,7 +68,6 @@ pub(crate) fn get_builtin_functions() -> &'static Mutex<Vec<(String, SymbolInfo)
                         ],
                         Box::new(Type::Void),
                     ),
-                    const_val: None,
                 },
             ),
             (
@@ -80,7 +75,6 @@ pub(crate) fn get_builtin_functions() -> &'static Mutex<Vec<(String, SymbolInfo)
                 SymbolInfo {
                     qualifier: Qualifier::Const,
                     ty: Type::Function(vec![], Box::new(Type::Void)),
-                    const_val: None,
                 },
             ),
             (
@@ -88,7 +82,6 @@ pub(crate) fn get_builtin_functions() -> &'static Mutex<Vec<(String, SymbolInfo)
                 SymbolInfo {
                     qualifier: Qualifier::Const,
                     ty: Type::Function(vec![], Box::new(Type::Void)),
-                    const_val: None,
                 },
             ),
         ])

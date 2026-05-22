@@ -18,12 +18,6 @@ static WHILE_DEPTH_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Error)]
 pub enum SemanticError {
-    #[error("{0:?} is not a constant expression")]
-    ConstEvalError(Expression),
-
-    #[error("{0} is not a constant identifer")]
-    ConstIdentError(String),
-
     #[error("unresolved symbol: {0}")]
     UnresolvedSymbol(String),
 
@@ -38,6 +32,9 @@ pub enum SemanticError {
 
     #[error("expected type \"{0:?}\", found \"{1:?}\"")]
     TypeError(Type, Type),
+
+    #[error("constant value expected")]
+    ConstValueError,
 
     #[error("symbol table error: {0}")]
     SymbolTableError(#[from] SymbolTableError),
@@ -63,10 +60,16 @@ impl SemanticChecker {
             self.symtable.add_symbol(id.clone(), syminfo.clone())?;
         }
 
+        let new_scope = self.symtable.enter_scope();
+        self.symtable = new_scope;
+
         // 开始对整个程序的检查
         for item in &prog.items {
             self.check_item(item)?;
         }
+
+        let old_scope = self.symtable.exit_scope()?;
+        self.symtable = old_scope;
         Ok(())
     }
 
@@ -83,7 +86,6 @@ impl SemanticChecker {
                 let syminfo = SymbolInfo {
                     qualifier: Qualifier::Const, // TODO: 斟酌此字段的内容
                     ty: Type::Function(params_types, Box::new(f.return_type.clone())),
-                    const_val: None,
                 };
                 self.symtable.add_symbol(id, syminfo.clone())?;
                 *f.ident.resolve_status.borrow_mut() = ResolveStatus::Resolved(syminfo.clone());
@@ -97,7 +99,6 @@ impl SemanticChecker {
                     let syminfo = SymbolInfo {
                         qualifier: Qualifier::Var,
                         ty: ty.clone(),
-                        const_val: None,
                     };
                     self.symtable.add_symbol(id.name.clone(), syminfo.clone())?;
                     *id.resolve_status.borrow_mut() = ResolveStatus::Resolved(syminfo.clone());
@@ -113,7 +114,6 @@ impl SemanticChecker {
                 self.symtable = old_scope;
             }
             Item::GlobalVar(stmt) => {
-                // FIXME: 在语义检查阶段就要检查全局变量表达式的组成部分是否都为常量表达式
                 self.check_statement(stmt)?;
             }
         }
@@ -127,14 +127,10 @@ impl SemanticChecker {
                 // 对等号右边的表达式进行语义检查
                 self.check_expression(expr)?;
 
-                // 计算常量值
-                let val = self.eval_const_val(expr)?;
-
                 // 创建SymbolInfo结构体
                 let syminfo = SymbolInfo {
                     qualifier: Qualifier::Const,
                     ty: ty_opt.clone().unwrap(),
-                    const_val: Some(val),
                 };
 
                 // 将id对应的信息写入ast
@@ -151,7 +147,6 @@ impl SemanticChecker {
                 let syminfo = SymbolInfo {
                     qualifier: Qualifier::Var,
                     ty: ty_opt.clone().unwrap(),
-                    const_val: None,
                 };
 
                 // 将id对应的作用域信息写入ast
@@ -166,7 +161,7 @@ impl SemanticChecker {
                 // 在符号表中查找id对应的SymbolInfo
                 let syminfo = self.symtable.find_symbol(&lval.name)?;
                 if syminfo.is_const_val() {
-                    return Err(SemanticError::ConstIdentError(lval.name.clone()));
+                    return Err(SemanticError::ConstValueError);
                 }
                 self.check_expression(expr)?;
 
@@ -237,60 +232,6 @@ impl SemanticChecker {
         }
 
         Ok(())
-    }
-
-    fn eval_const_val(&self, expr: &Expression) -> Result<i32, SemanticError> {
-        match expr {
-            Expression::IntLit(i) => Ok(*i),
-            Expression::Ident(id) => {
-                let syminfo = self.symtable.find_symbol(&id.name)?;
-                syminfo
-                    .const_val
-                    .ok_or(SemanticError::ConstEvalError(expr.clone()))
-            }
-            Expression::Unary(op, expr) => match op {
-                UnaryOp::Plus => self.eval_const_val(expr),
-                UnaryOp::Minus => self.eval_const_val(expr).map(|val| -val),
-                UnaryOp::LogicalNot => self.eval_const_val(expr).map(|val| !val),
-            },
-            Expression::Binary(lhs, op, rhs) => match op {
-                // 算数运算符
-                BinaryOp::Add => Ok(self.eval_const_val(&lhs)? + self.eval_const_val(&rhs)?),
-                BinaryOp::Sub => Ok(self.eval_const_val(&lhs)? - self.eval_const_val(&rhs)?),
-                BinaryOp::Mul => Ok(self.eval_const_val(&lhs)? * self.eval_const_val(&rhs)?),
-                BinaryOp::Div => Ok(self.eval_const_val(&lhs)? / self.eval_const_val(&rhs)?),
-                BinaryOp::Rem => Ok(self.eval_const_val(&lhs)? % self.eval_const_val(&rhs)?),
-
-                // 比较运算符
-                BinaryOp::Less => {
-                    Ok((self.eval_const_val(&lhs)? < self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::Le => {
-                    Ok((self.eval_const_val(&lhs)? <= self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::Eq => {
-                    Ok((self.eval_const_val(&lhs)? == self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::Ge => {
-                    Ok((self.eval_const_val(&lhs)? >= self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::Greater => {
-                    Ok((self.eval_const_val(&lhs)? > self.eval_const_val(&rhs)?).into())
-                }
-                BinaryOp::NotEq => {
-                    Ok((self.eval_const_val(&lhs)? != self.eval_const_val(&rhs)?).into())
-                }
-
-                // 逻辑运算符
-                BinaryOp::LogicalAnd => Ok((Self::i32_to_bool(self.eval_const_val(&lhs)?)
-                    && Self::i32_to_bool(self.eval_const_val(&rhs)?))
-                .into()),
-                BinaryOp::LogicalOr => Ok((Self::i32_to_bool(self.eval_const_val(&lhs)?)
-                    || Self::i32_to_bool(self.eval_const_val(&rhs)?))
-                .into()),
-            },
-            Expression::Call(_id, _expr) => unreachable!(),
-        }
     }
 
     fn check_expression(&mut self, expr: &Expression) -> Result<(), SemanticError> {
